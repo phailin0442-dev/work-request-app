@@ -23,9 +23,11 @@ export async function POST(req: Request) {
 
     const leave_type = String(body.leave_type || "").trim();
     const leave_day = String(body.leave_day || "").trim();
+    const leave_to_day = String(body.leave_to_day || "").trim();
+    const leave_total_days = String(body.leave_total_days || "").trim();
     const leave_reason = String(body.leave_reason || "").trim();
 
-    if (!leave_type || !leave_day || !leave_reason) {
+    if (!leave_type || !leave_day || !leave_to_day || !leave_total_days || !leave_reason) {
       return NextResponse.json(
         { ok: false, message: "กรุณากรอกข้อมูลให้ครบ" },
         { status: 400 }
@@ -53,8 +55,10 @@ export async function POST(req: Request) {
           employee_code: employee.employee_code,
           leave_type,
           leave_day,
+          leave_to_day,
+          leave_total_days,
           leave_reason,
-          status: "pending",
+          status: "pending_sm",
         },
       ]);
 
@@ -71,10 +75,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        message: error?.message || "เกิดข้อผิดพลาดในการบันทึกคำขอ",
-      },
+      { ok: false, message: error?.message || "เกิดข้อผิดพลาด" },
       { status: 500 }
     );
   }

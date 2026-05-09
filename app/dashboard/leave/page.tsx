@@ -6,6 +6,8 @@ import { useState } from "react";
 export default function LeavePage() {
   const [leaveType, setLeaveType] = useState("");
   const [leaveDay, setLeaveDay] = useState("");
+  const [leaveToDay, setLeaveToDay] = useState("");
+  const [leaveTotalDays, setLeaveTotalDays] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
 
   const [message, setMessage] = useState("");
@@ -27,6 +29,8 @@ export default function LeavePage() {
         body: JSON.stringify({
           leave_type: leaveType,
           leave_day: leaveDay,
+          leave_to_day: leaveToDay,
+          leave_total_days: leaveTotalDays,
           leave_reason: leaveReason,
         }),
       });
@@ -41,6 +45,8 @@ export default function LeavePage() {
       setMessage("ส่งคำขอลาสำเร็จแล้ว");
       setLeaveType("");
       setLeaveDay("");
+      setLeaveToDay("");
+      setLeaveTotalDays("");
       setLeaveReason("");
     } catch (error: any) {
       setMessage(error?.message || "เกิดข้อผิดพลาด");
@@ -53,9 +59,7 @@ export default function LeavePage() {
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-6 shadow">
         <h1 className="text-2xl font-bold">ขอลา</h1>
-        <p className="mt-2 text-slate-600">
-          กรอกข้อมูลคำขอลาแล้วกดส่ง
-        </p>
+        <p className="mt-2 text-slate-600">กรอกข้อมูลคำขอลาแล้วกดส่ง</p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div className="space-y-1">
@@ -63,17 +67,39 @@ export default function LeavePage() {
             <input
               value={leaveType}
               onChange={(e) => setLeaveType(e.target.value)}
-              placeholder="เช่น ลาป่วย"
+              placeholder="เช่น ลาป่วย / ลากิจ / ลาพักร้อน"
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">ลาตั้งแต่วันที่</label>
+              <input
+                value={leaveDay}
+                onChange={(e) => setLeaveDay(e.target.value)}
+                placeholder="เช่น 2026-05-08"
+                className="w-full rounded-lg border px-3 py-2"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">ลาถึงวันที่</label>
+              <input
+                value={leaveToDay}
+                onChange={(e) => setLeaveToDay(e.target.value)}
+                placeholder="เช่น 2026-05-10"
+                className="w-full rounded-lg border px-3 py-2"
+              />
+            </div>
+          </div>
+
           <div className="space-y-1">
-            <label className="text-sm font-medium">วันที่ลา</label>
+            <label className="text-sm font-medium">จำนวนวันลา</label>
             <input
-              value={leaveDay}
-              onChange={(e) => setLeaveDay(e.target.value)}
-              placeholder="เช่น 2026-05-08"
+              value={leaveTotalDays}
+              onChange={(e) => setLeaveTotalDays(e.target.value)}
+              placeholder="เช่น 1 / 2 / 3"
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
