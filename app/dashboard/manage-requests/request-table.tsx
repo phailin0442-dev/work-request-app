@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type RequestType = "ot" | "shift" | "dayoff" | "leave";
 
@@ -19,12 +19,42 @@ export default function RequestTable({
   role: string;
 }) {
   const router = useRouter();
+
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [loading, setLoading] = useState(false);
 
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
   const isHR = role === "hr";
+
+  function getRequestDate(item: any) {
+    if (type === "ot") return String(item.ot_date || "");
+    if (type === "shift") return String(item.shift_date || "");
+    if (type === "dayoff") return String(item.old_day_off || "");
+    if (type === "leave") return String(item.leave_day || "");
+    return "";
+  }
+
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      const requestDate = getRequestDate(item);
+
+      if (!requestDate) return false;
+
+      if (dateFrom && requestDate < dateFrom) {
+        return false;
+      }
+
+      if (dateTo && requestDate > dateTo) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [items, dateFrom, dateTo]);
 
   function toggleOne(id: string) {
     setSelectedIds((prev) =>
@@ -33,16 +63,22 @@ export default function RequestTable({
   }
 
   function toggleAll() {
-  const validIds = items
-    .map((item) => String(item.request_id || "").trim())
-    .filter((id) => id.length > 0);
+    const validIds = filteredItems
+      .map((item) => String(item.request_id || "").trim())
+      .filter((id) => id.length > 0);
 
-  if (selectedIds.length === validIds.length) {
-    setSelectedIds([]);
-  } else {
-    setSelectedIds(validIds);
+    if (selectedIds.length === validIds.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(validIds);
+    }
   }
-}
+
+  function clearFilter() {
+    setDateFrom("");
+    setDateTo("");
+    setSelectedIds([]);
+  }
 
   function startEdit(item: any) {
     setEditingId(item.request_id);
@@ -82,6 +118,7 @@ export default function RequestTable({
     });
 
     const data = await res.json();
+
     setLoading(false);
 
     if (!data.ok) {
@@ -112,6 +149,7 @@ export default function RequestTable({
     });
 
     const data = await res.json();
+
     setLoading(false);
 
     if (!data.ok) {
@@ -127,9 +165,14 @@ export default function RequestTable({
   return (
     <section className="rounded-2xl bg-white p-6 shadow">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">{title}</h2>
+        <div>
+          <h2 className="text-xl font-semibold">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            แสดง {filteredItems.length} รายการ จากทั้งหมด {items.length} รายการ
+          </p>
+        </div>
 
-        {items.length > 0 && (
+        {filteredItems.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => updateSelected("approve")}
@@ -150,7 +193,56 @@ export default function RequestTable({
         )}
       </div>
 
-      {items.length === 0 ? (
+      <div className="mt-4 rounded-xl border bg-slate-50 p-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              วันที่เริ่มต้น
+            </label>
+            <input
+              type="text"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setSelectedIds([]);
+              }}
+              placeholder="เช่น 2026-05-01"
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              วันที่สิ้นสุด
+            </label>
+            <input
+              type="text"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setSelectedIds([]);
+              }}
+              placeholder="เช่น 2026-05-31"
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+
+          <div className="flex items-end">
+            <button
+              onClick={clearFilter}
+              className="w-full rounded-lg bg-slate-900 px-4 py-2 font-medium text-white"
+            >
+              ล้างตัวกรอง
+            </button>
+          </div>
+        </div>
+
+        <p className="mt-2 text-xs text-slate-500">
+          กรองตามวันที่ของรายการ เช่น OT ใช้วันที่ OT, ลาใช้วันเริ่มลา
+        </p>
+      </div>
+
+      {filteredItems.length === 0 ? (
         <p className="mt-4 text-sm text-slate-500">ไม่มีรายการ</p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -160,7 +252,10 @@ export default function RequestTable({
                 <th className="p-3">
                   <input
                     type="checkbox"
-                    checked={items.length > 0 && selectedIds.length === items.length}
+                    checked={
+                      filteredItems.length > 0 &&
+                      selectedIds.length === filteredItems.length
+                    }
                     onChange={toggleAll}
                   />
                 </th>
@@ -174,7 +269,7 @@ export default function RequestTable({
             </thead>
 
             <tbody>
-              {items.map((item) => {
+              {filteredItems.map((item) => {
                 const isEditing = editingId === item.request_id;
 
                 return (
@@ -191,17 +286,21 @@ export default function RequestTable({
 
                     <td className="p-3">
                       {isEditing ? (
-                        <DateEdit
-                          type={type}
-                          form={editForm}
-                          setField={setField}
-                        />
+                        <DateEdit type={type} form={editForm} setField={setField} />
                       ) : (
                         <>
                           {type === "ot" && item.ot_date}
                           {type === "shift" && item.shift_date}
                           {type === "dayoff" && item.old_day_off}
-                          {type === "leave" && item.leave_day}
+                          {type === "leave" && (
+                            <>
+                              {item.leave_day}
+                              {item.leave_to_day ? ` ถึง ${item.leave_to_day}` : ""}
+                              {item.leave_total_days
+                                ? ` (${item.leave_total_days} วัน)`
+                                : ""}
+                            </>
+                          )}
                         </>
                       )}
                     </td>
@@ -216,10 +315,13 @@ export default function RequestTable({
                       ) : (
                         <>
                           {type === "ot" && `${item.start_time} - ${item.end_time}`}
+
                           {type === "shift" &&
                             `${item.old_shift_code} ${item.old_shift_time} → ${item.new_shift_code} ${item.new_shift_time}`}
+
                           {type === "dayoff" &&
                             `${item.old_day_off} → ${item.new_day_off}`}
+
                           {type === "leave" && item.leave_type}
                         </>
                       )}
@@ -278,6 +380,7 @@ export default function RequestTable({
                             >
                               บันทึก
                             </button>
+
                             <button
                               onClick={cancelEdit}
                               disabled={loading}
@@ -345,6 +448,7 @@ function DateEdit({
           placeholder="วันหยุดเดิม"
           className="min-w-[140px] rounded border px-2 py-1"
         />
+
         <input
           value={form.new_day_off || ""}
           onChange={(e) => setField("new_day_off", e.target.value)}
@@ -356,11 +460,28 @@ function DateEdit({
   }
 
   return (
-    <input
-      value={form.leave_day || ""}
-      onChange={(e) => setField("leave_day", e.target.value)}
-      className="min-w-[140px] rounded border px-2 py-1"
-    />
+    <div className="space-y-2">
+      <input
+        value={form.leave_day || ""}
+        onChange={(e) => setField("leave_day", e.target.value)}
+        placeholder="ลาตั้งแต่วันที่"
+        className="min-w-[140px] rounded border px-2 py-1"
+      />
+
+      <input
+        value={form.leave_to_day || ""}
+        onChange={(e) => setField("leave_to_day", e.target.value)}
+        placeholder="ลาถึงวันที่"
+        className="min-w-[140px] rounded border px-2 py-1"
+      />
+
+      <input
+        value={form.leave_total_days || ""}
+        onChange={(e) => setField("leave_total_days", e.target.value)}
+        placeholder="จำนวนวันลา"
+        className="min-w-[140px] rounded border px-2 py-1"
+      />
+    </div>
   );
 }
 
@@ -382,6 +503,7 @@ function DetailEdit({
           placeholder="เวลาเริ่ม"
           className="min-w-[140px] rounded border px-2 py-1"
         />
+
         <input
           value={form.end_time || ""}
           onChange={(e) => setField("end_time", e.target.value)}
@@ -401,18 +523,21 @@ function DetailEdit({
           placeholder="กะเดิม"
           className="min-w-[140px] rounded border px-2 py-1"
         />
+
         <input
           value={form.old_shift_time || ""}
           onChange={(e) => setField("old_shift_time", e.target.value)}
           placeholder="เวลาเดิม"
           className="min-w-[140px] rounded border px-2 py-1"
         />
+
         <input
           value={form.new_shift_code || ""}
           onChange={(e) => setField("new_shift_code", e.target.value)}
           placeholder="กะใหม่"
           className="min-w-[140px] rounded border px-2 py-1"
         />
+
         <input
           value={form.new_shift_time || ""}
           onChange={(e) => setField("new_shift_time", e.target.value)}
@@ -424,7 +549,7 @@ function DetailEdit({
   }
 
   if (type === "dayoff") {
-    return <span>แก้วันที่ในช่องวันที่</span>;
+    return <span className="text-slate-500">แก้วันที่ในช่องวันที่</span>;
   }
 
   return (
