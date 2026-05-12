@@ -51,12 +51,11 @@ export default function LoginPage() {
           <h1 style={styles.title}>เข้าสู่ระบบ</h1>
 
           <p style={styles.subtitle}>
-            ระบบยื่นคำขอและอนุมัติออนไลน์ สำหรับพนักงาน ผู้จัดการ และ HR
+            ระบบบันทึกเวลาการทำงานของพนักงาน ADECCO
           </p>
 
           <div style={styles.featureBox}>
             <div style={styles.feature}>✅ ยื่น OT / ลา / เปลี่ยนกะ</div>
-            <div style={styles.feature}>✅ อนุมัติหลายขั้น SM / GM / HR</div>
             <div style={styles.feature}>✅ Export Excel และจัดการพนักงาน</div>
           </div>
         </div>
@@ -73,7 +72,7 @@ export default function LoginPage() {
             <input
               value={employeeCode}
               onChange={(e) => setEmployeeCode(e.target.value)}
-              placeholder="เช่น AD006547"
+              placeholder="เช่น AD123456"
               style={styles.input}
             />
           </div>
