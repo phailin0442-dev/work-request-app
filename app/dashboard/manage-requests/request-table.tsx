@@ -27,6 +27,7 @@ export default function RequestTable({
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const isHR = role === "hr";
 
@@ -44,17 +45,30 @@ export default function RequestTable({
 
       if (!requestDate) return false;
 
-      if (dateFrom && requestDate < dateFrom) {
-        return false;
-      }
+      if (dateFrom && requestDate < dateFrom) return false;
+      if (dateTo && requestDate > dateTo) return false;
 
-      if (dateTo && requestDate > dateTo) {
-        return false;
+      if (isHR && statusFilter !== "all") {
+        if (statusFilter === "pending") {
+          return item.status === "pending" || item.status === "pending_sm";
+        }
+
+        if (statusFilter === "approved") {
+          return (
+            item.status === "approved_sm" ||
+            item.status === "approved_gm" ||
+            item.status === "approved_hr"
+          );
+        }
+
+        if (statusFilter === "rejected") {
+          return item.status === "rejected";
+        }
       }
 
       return true;
     });
-  }, [items, dateFrom, dateTo]);
+  }, [items, dateFrom, dateTo, statusFilter, isHR]);
 
   function toggleOne(id: string) {
     setSelectedIds((prev) =>
@@ -65,7 +79,7 @@ export default function RequestTable({
   function toggleAll() {
     const validIds = filteredItems
       .map((item) => String(item.request_id || "").trim())
-      .filter((id) => id.length > 0);
+      .filter(Boolean);
 
     if (selectedIds.length === validIds.length) {
       setSelectedIds([]);
@@ -77,6 +91,7 @@ export default function RequestTable({
   function clearFilter() {
     setDateFrom("");
     setDateTo("");
+    setStatusFilter("all");
     setSelectedIds([]);
   }
 
@@ -118,7 +133,6 @@ export default function RequestTable({
     });
 
     const data = await res.json();
-
     setLoading(false);
 
     if (!data.ok) {
@@ -149,7 +163,6 @@ export default function RequestTable({
     });
 
     const data = await res.json();
-
     setLoading(false);
 
     if (!data.ok) {
@@ -163,11 +176,11 @@ export default function RequestTable({
   }
 
   return (
-    <section className="rounded-2xl bg-white p-6 shadow">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="overflow-hidden rounded-2xl bg-white shadow">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-red-700 px-6 py-4 text-white">
         <div>
           <h2 className="text-xl font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-red-100">
             แสดง {filteredItems.length} รายการ จากทั้งหมด {items.length} รายการ
           </p>
         </div>
@@ -185,7 +198,7 @@ export default function RequestTable({
             <button
               onClick={() => updateSelected("reject")}
               disabled={loading}
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-red-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               ไม่อนุมัติที่เลือก
             </button>
@@ -193,12 +206,10 @@ export default function RequestTable({
         )}
       </div>
 
-      <div className="mt-4 rounded-xl border bg-slate-50 p-4">
-        <div className="grid gap-3 sm:grid-cols-3">
+      <div className="m-6 rounded-xl border bg-slate-50 p-4">
+        <div className={isHR ? "grid gap-3 sm:grid-cols-4" : "grid gap-3 sm:grid-cols-3"}>
           <div>
-            <label className="mb-1 block text-sm font-medium">
-              วันที่เริ่มต้น
-            </label>
+            <label className="mb-1 block text-sm font-medium">วันที่เริ่มต้น</label>
             <input
               type="text"
               value={dateFrom}
@@ -212,9 +223,7 @@ export default function RequestTable({
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">
-              วันที่สิ้นสุด
-            </label>
+            <label className="mb-1 block text-sm font-medium">วันที่สิ้นสุด</label>
             <input
               type="text"
               value={dateTo}
@@ -227,6 +236,25 @@ export default function RequestTable({
             />
           </div>
 
+          {isHR && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">สถานะ</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setSelectedIds([]);
+                }}
+                className="w-full rounded-lg border px-3 py-2"
+              >
+                <option value="all">ทั้งหมด</option>
+                <option value="pending">รออนุมัติ</option>
+                <option value="approved">อนุมัติแล้ว</option>
+                <option value="rejected">ไม่อนุมัติ</option>
+              </select>
+            </div>
+          )}
+
           <div className="flex items-end">
             <button
               onClick={clearFilter}
@@ -236,16 +264,12 @@ export default function RequestTable({
             </button>
           </div>
         </div>
-
-        <p className="mt-2 text-xs text-slate-500">
-          กรองตามวันที่ของรายการ เช่น OT ใช้วันที่ OT, ลาใช้วันเริ่มลา
-        </p>
       </div>
 
       {filteredItems.length === 0 ? (
-        <p className="mt-4 text-sm text-slate-500">ไม่มีรายการ</p>
+        <p className="mx-6 mb-6 text-sm text-slate-500">ไม่มีรายการ</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mx-6 mb-6 overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b bg-slate-100 text-left">
@@ -307,21 +331,14 @@ export default function RequestTable({
 
                     <td className="p-3">
                       {isEditing ? (
-                        <DetailEdit
-                          type={type}
-                          form={editForm}
-                          setField={setField}
-                        />
+                        <DetailEdit type={type} form={editForm} setField={setField} />
                       ) : (
                         <>
                           {type === "ot" && `${item.start_time} - ${item.end_time}`}
-
                           {type === "shift" &&
                             `${item.old_shift_code} ${item.old_shift_time} → ${item.new_shift_code} ${item.new_shift_time}`}
-
                           {type === "dayoff" &&
                             `${item.old_day_off} → ${item.new_day_off}`}
-
                           {type === "leave" && item.leave_type}
                         </>
                       )}

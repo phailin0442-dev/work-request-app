@@ -19,14 +19,14 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false }, { status: 401 });
   }
 
-  const { data: employee } = await supabaseAdmin
+  const { data: currentUser } = await supabaseAdmin
     .from("employees")
     .select("role")
     .eq("id", employeeId)
     .eq("active", true)
     .maybeSingle();
 
-  const role = String(employee?.role || "").trim().toLowerCase();
+  const role = String(currentUser?.role || "").trim().toLowerCase();
 
   if (role !== "hr") {
     return NextResponse.json(
@@ -36,12 +36,60 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-
   const type = url.searchParams.get("type") || "all";
   const from = url.searchParams.get("from") || "";
   const to = url.searchParams.get("to") || "";
 
-  function applyDateFilter(query: any) {
+  const { data: employees } = await supabaseAdmin
+    .from("employees")
+    .select(`
+      employee_code,
+      full_name,
+      position,
+      department_id,
+      division_id
+    `);
+
+  const { data: departments } = await supabaseAdmin
+    .from("departments")
+    .select("id, name");
+
+  const { data: divisions } = await supabaseAdmin
+    .from("divisions")
+    .select("id, name");
+
+  const departmentMap = new Map(
+    (departments || []).map((x: any) => [x.id, x.name])
+  );
+
+  const divisionMap = new Map(
+    (divisions || []).map((x: any) => [x.id, x.name])
+  );
+
+  const employeeMap = new Map(
+    (employees || []).map((emp: any) => [
+      emp.employee_code,
+      {
+        full_name: emp.full_name || "",
+        position: emp.position || "",
+        department: departmentMap.get(emp.department_id) || "",
+        division: divisionMap.get(emp.division_id) || "",
+      },
+    ])
+  );
+
+  function getEmployeeInfo(employeeCode: string) {
+    return (
+      employeeMap.get(employeeCode) || {
+        full_name: "",
+        position: "",
+        department: "",
+        division: "",
+      }
+    );
+  }
+
+  function applyCreatedAtFilter(query: any) {
     if (from) {
       query = query.gte("created_at", `${from}T00:00:00`);
     }
@@ -57,6 +105,10 @@ export async function GET(req: Request) {
     [
       "ประเภท",
       "รหัสพนักงาน",
+      "ชื่อ-นามสกุล",
+      "ตำแหน่ง",
+      "แผนก",
+      "ฝ่าย",
       "รายละเอียด",
       "เหตุผล",
       "สถานะ",
@@ -65,7 +117,7 @@ export async function GET(req: Request) {
   ];
 
   if (type === "all" || type === "ot") {
-    const query = applyDateFilter(
+    const query = applyCreatedAtFilter(
       supabaseAdmin
         .from("ot_requests")
         .select("*")
@@ -75,19 +127,27 @@ export async function GET(req: Request) {
     const { data } = await query;
 
     rows.push(
-      ...(data || []).map((x: any) => [
-        "OT",
-        x.employee_code,
-        `${x.ot_date} ${x.start_time}-${x.end_time}`,
-        x.reason,
-        x.status,
-        x.created_at,
-      ])
+      ...(data || []).map((x: any) => {
+        const emp = getEmployeeInfo(x.employee_code);
+
+        return [
+          "OT",
+          x.employee_code,
+          emp.full_name,
+          emp.position,
+          emp.department,
+          emp.division,
+          `${x.ot_date || ""} ${x.start_time || ""}-${x.end_time || ""}`,
+          x.reason,
+          x.status,
+          x.created_at,
+        ];
+      })
     );
   }
 
   if (type === "all" || type === "shift") {
-    const query = applyDateFilter(
+    const query = applyCreatedAtFilter(
       supabaseAdmin
         .from("shift_change_requests")
         .select("*")
@@ -97,19 +157,29 @@ export async function GET(req: Request) {
     const { data } = await query;
 
     rows.push(
-      ...(data || []).map((x: any) => [
-        "เปลี่ยนกะ",
-        x.employee_code,
-        `${x.shift_date} ${x.old_shift_code} ${x.old_shift_time} -> ${x.new_shift_code} ${x.new_shift_time}`,
-        x.reason,
-        x.status,
-        x.created_at,
-      ])
+      ...(data || []).map((x: any) => {
+        const emp = getEmployeeInfo(x.employee_code);
+
+        return [
+          "เปลี่ยนกะ",
+          x.employee_code,
+          emp.full_name,
+          emp.position,
+          emp.department,
+          emp.division,
+          `${x.shift_date || ""} ${x.old_shift_code || ""} ${
+            x.old_shift_time || ""
+          } -> ${x.new_shift_code || ""} ${x.new_shift_time || ""}`,
+          x.reason,
+          x.status,
+          x.created_at,
+        ];
+      })
     );
   }
 
   if (type === "all" || type === "dayoff") {
-    const query = applyDateFilter(
+    const query = applyCreatedAtFilter(
       supabaseAdmin
         .from("day_off_change_requests")
         .select("*")
@@ -119,19 +189,27 @@ export async function GET(req: Request) {
     const { data } = await query;
 
     rows.push(
-      ...(data || []).map((x: any) => [
-        "เปลี่ยนวันหยุด",
-        x.employee_code,
-        `${x.old_day_off} -> ${x.new_day_off}`,
-        x.reason,
-        x.status,
-        x.created_at,
-      ])
+      ...(data || []).map((x: any) => {
+        const emp = getEmployeeInfo(x.employee_code);
+
+        return [
+          "เปลี่ยนวันหยุด",
+          x.employee_code,
+          emp.full_name,
+          emp.position,
+          emp.department,
+          emp.division,
+          `${x.old_day_off || ""} -> ${x.new_day_off || ""}`,
+          x.reason,
+          x.status,
+          x.created_at,
+        ];
+      })
     );
   }
 
   if (type === "all" || type === "leave") {
-    const query = applyDateFilter(
+    const query = applyCreatedAtFilter(
       supabaseAdmin
         .from("leave_form_requests")
         .select("*")
@@ -141,22 +219,30 @@ export async function GET(req: Request) {
     const { data } = await query;
 
     rows.push(
-      ...(data || []).map((x: any) => [
-        "ลา",
-        x.employee_code,
-        `${x.leave_day} ${x.leave_type}`,
-        x.leave_reason,
-        x.status,
-        x.created_at,
-      ])
+      ...(data || []).map((x: any) => {
+        const emp = getEmployeeInfo(x.employee_code);
+
+        return [
+          "ลา",
+          x.employee_code,
+          emp.full_name,
+          emp.position,
+          emp.department,
+          emp.division,
+          `${x.leave_day || ""} ถึง ${x.leave_to_day || ""} จำนวน ${
+            x.leave_total_days || ""
+          } วัน / ${x.leave_type || ""}`,
+          x.leave_reason,
+          x.status,
+          x.created_at,
+        ];
+      })
     );
   }
 
   const csv =
     "\uFEFF" +
-    rows
-      .map((row) => row.map(toCsvValue).join(","))
-      .join("\n");
+    rows.map((row) => row.map(toCsvValue).join(",")).join("\n");
 
   return new NextResponse(csv, {
     headers: {

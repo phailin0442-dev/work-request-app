@@ -9,11 +9,20 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export default async function ManageRequestsPage() {
+export default async function ManageRequestsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const activeTab = params?.tab || "ot";
+
   const cookieStore = await cookies();
   const employeeId = cookieStore.get("employee_session")?.value;
 
-  if (!employeeId) redirect("/login");
+  if (!employeeId) {
+    redirect("/login");
+  }
 
   const { data: employee } = await supabaseAdmin
     .from("employees")
@@ -22,7 +31,9 @@ export default async function ManageRequestsPage() {
     .eq("active", true)
     .maybeSingle();
 
-  if (!employee) redirect("/login");
+  if (!employee) {
+    redirect("/login");
+  }
 
   const role = String(employee.role || "").trim().toLowerCase();
 
@@ -43,13 +54,27 @@ export default async function ManageRequestsPage() {
     : isGM
     ? ["approved_sm"]
     : isHR
-    ? ["pending_sm", "pending", "approved_sm", "approved_gm", "approved_hr", "rejected"]
+    ? [
+        "pending_sm",
+        "pending",
+        "approved_sm",
+        "approved_gm",
+        "approved_hr",
+        "rejected",
+      ]
     : [];
 
   const otherStatus = isSM
     ? ["pending_sm", "pending"]
     : isHR
-    ? ["pending_sm", "pending", "approved_sm", "approved_gm", "approved_hr", "rejected"]
+    ? [
+        "pending_sm",
+        "pending",
+        "approved_sm",
+        "approved_gm",
+        "approved_hr",
+        "rejected",
+      ]
     : [];
 
   const { data: otRequests } =
@@ -105,15 +130,9 @@ export default async function ManageRequestsPage() {
           </Link>
         </div>
 
-        {(isSM || isGM || isHR) && (
+        {isGM && (
           <RequestTable
-            title={
-              isHR
-                ? "คำขอ OT ทั้งหมด"
-                : isSM
-                ? "คำขอ OT: รอ SM อนุมัติ"
-                : "คำขอ OT: รอ GM อนุมัติ"
-            }
+            title="คำขอ OT: รอ GM อนุมัติ"
             table="ot_requests"
             items={otRequests || []}
             type="ot"
@@ -123,44 +142,99 @@ export default async function ManageRequestsPage() {
 
         {(isSM || isHR) && (
           <>
-            <RequestTable
-              title={
-                isHR
-                  ? "คำขอเปลี่ยนกะทั้งหมด"
-                  : "คำขอเปลี่ยนกะ: รอ SM อนุมัติ"
-              }
-              table="shift_change_requests"
-              items={shiftRequests || []}
-              type="shift"
-              role={role}
-            />
+            <div className="rounded-2xl bg-white p-4 shadow">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <TabButton href="/dashboard/manage-requests?tab=ot" active={activeTab === "ot"}>
+                  OT ({otRequests?.length || 0})
+                </TabButton>
 
-            <RequestTable
-              title={
-                isHR
-                  ? "คำขอเปลี่ยนวันหยุดทั้งหมด"
-                  : "คำขอเปลี่ยนวันหยุด: รอ SM อนุมัติ"
-              }
-              table="day_off_change_requests"
-              items={dayOffRequests || []}
-              type="dayoff"
-              role={role}
-            />
+                <TabButton href="/dashboard/manage-requests?tab=shift" active={activeTab === "shift"}>
+                  เปลี่ยนกะ ({shiftRequests?.length || 0})
+                </TabButton>
 
-            <RequestTable
-              title={
-                isHR
-                  ? "คำขอลาทั้งหมด"
-                  : "คำขอลา: รอ SM อนุมัติ"
-              }
-              table="leave_form_requests"
-              items={leaveRequests || []}
-              type="leave"
-              role={role}
-            />
+                <TabButton href="/dashboard/manage-requests?tab=dayoff" active={activeTab === "dayoff"}>
+                  เปลี่ยนวันหยุด ({dayOffRequests?.length || 0})
+                </TabButton>
+
+                <TabButton href="/dashboard/manage-requests?tab=leave" active={activeTab === "leave"}>
+                  ขอลา ({leaveRequests?.length || 0})
+                </TabButton>
+              </div>
+            </div>
+
+            {activeTab === "ot" && (
+              <RequestTable
+                title={isHR ? "คำขอ OT ทั้งหมด" : "คำขอ OT: รอ SM อนุมัติ"}
+                table="ot_requests"
+                items={otRequests || []}
+                type="ot"
+                role={role}
+              />
+            )}
+
+            {activeTab === "shift" && (
+              <RequestTable
+                title={
+                  isHR
+                    ? "คำขอเปลี่ยนกะทั้งหมด"
+                    : "คำขอเปลี่ยนกะ: รอ SM อนุมัติ"
+                }
+                table="shift_change_requests"
+                items={shiftRequests || []}
+                type="shift"
+                role={role}
+              />
+            )}
+
+            {activeTab === "dayoff" && (
+              <RequestTable
+                title={
+                  isHR
+                    ? "คำขอเปลี่ยนวันหยุดทั้งหมด"
+                    : "คำขอเปลี่ยนวันหยุด: รอ SM อนุมัติ"
+                }
+                table="day_off_change_requests"
+                items={dayOffRequests || []}
+                type="dayoff"
+                role={role}
+              />
+            )}
+
+            {activeTab === "leave" && (
+              <RequestTable
+                title={isHR ? "คำขอลาทั้งหมด" : "คำขอลา: รอ SM อนุมัติ"}
+                table="leave_form_requests"
+                items={leaveRequests || []}
+                type="leave"
+                role={role}
+              />
+            )}
           </>
         )}
       </div>
     </main>
+  );
+}
+
+function TabButton({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        active
+          ? "rounded-xl bg-red-700 px-4 py-3 text-center font-semibold text-white shadow"
+          : "rounded-xl bg-slate-100 px-4 py-3 text-center font-semibold text-slate-700 hover:bg-red-100"
+      }
+    >
+      {children}
+    </Link>
   );
 }
