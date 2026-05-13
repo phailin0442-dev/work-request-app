@@ -15,107 +15,136 @@ export default async function DashboardPage() {
 
   if (!employeeId) redirect("/login");
 
-  const { data: employee, error } = await supabaseAdmin
+  const { data: employee } = await supabaseAdmin
     .from("employees")
-    .select("id, employee_code, full_name, position, role, active")
+    .select(`
+      id,
+      employee_code,
+      full_name,
+      position,
+      role,
+      active,
+      department_name
+    `)
     .eq("id", employeeId)
     .eq("active", true)
     .maybeSingle();
 
-  if (error || !employee) redirect("/login");
+  if (!employee) redirect("/login");
 
   const role = String(employee.role || "").trim().toLowerCase();
+  const departmentName = employee.department_name || "-";
 
-  const canRequest = role === "employee";
-
-  const canManage = [
-    "section_manager",
-    "general_manager",
-    "hr",
-  ].includes(role);
-
+  const isEmployee = role === "employee";
+  const isSM = role === "section_manager";
+  const isGM = role === "general_manager";
   const isHR = role === "hr";
 
   return (
-    <main style={styles.page}>
-      <div style={styles.container}>
-        <section style={styles.hero}>
-          <div>
-            <div style={styles.systemName}>HR APPROVAL WORKFLOW SYSTEM</div>
-            <h1 style={styles.heroTitle}>สวัสดี, {employee.full_name}</h1>
-            <p style={styles.heroText}>
-              {employee.position || "-"} · {employee.employee_code}
-            </p>
-          </div>
+    <main className="min-h-screen bg-gradient-to-br from-red-50 via-white to-rose-100">
+      <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+        <section className="overflow-hidden rounded-[32px] bg-gradient-to-r from-red-700 via-red-600 to-rose-600 text-white shadow-2xl">
+          <div className="relative p-6 sm:p-8">
+            <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
 
-          <div style={styles.heroRight}>
-            <span style={styles.roleBadge}>ROLE : {role}</span>
-            <LogoutButton />
-          </div>
-        </section>
+            <div className="relative flex items-center justify-between gap-5">
+              <div className="min-w-0">
+                <p className="text-xs font-black tracking-[0.25em] text-red-100">
+                  HR APPROVAL WORKFLOW SYSTEM
+                </p>
 
-        <section style={styles.infoGrid}>
-          <InfoCard title="ชื่อ" value={employee.full_name} icon="👤" />
-          <InfoCard title="รหัสพนักงาน" value={employee.employee_code} icon="🪪" />
-          <InfoCard title="ตำแหน่ง" value={employee.position || "-"} icon="💼" />
-        </section>
+                <h1 className="mt-3 truncate text-3xl font-black sm:text-4xl">
+                  สวัสดี, {employee.full_name}
+                </h1>
 
-        {canRequest && (
-          <section style={styles.section}>
-            <SectionTitle
-              title="เมนูพนักงาน"
-              subtitle="เลือกประเภทคำขอที่ต้องการยื่น"
-            />
+                <p className="mt-2 truncate text-sm text-red-100 sm:text-base">
+                  {employee.employee_code} · แผนก {departmentName}
+                </p>
+              </div>
 
-            <div style={styles.menuGrid}>
-              <MenuCard href="/dashboard/ot" title="ยื่น OT" desc="ขอ OT ล่วงเวลา / วันหยุด" icon="⏱️" />
-              <MenuCard href="/dashboard/shift-change" title="ขอเปลี่ยนกะ" desc="ยื่นคำขอเปลี่ยนกะการทำงาน" icon="🔁" />
-              <MenuCard href="/dashboard/day-off" title="ขอเปลี่ยนวันหยุด" desc="ยื่นคำขอเปลี่ยนวันหยุด" icon="📅" />
-              <MenuCard href="/dashboard/leave" title="ขอลา" desc="ยื่นคำขอลาหยุดงาน" icon="📝" />
-              <MenuCard href="/dashboard/my-requests" title="รายการคำขอของฉัน" desc="ดูสถานะคำขอทั้งหมด" icon="📋" />
+              <div className="shrink-0 rounded-3xl border border-white/20 bg-white/10 p-4 text-right backdrop-blur-xl">
+                <p className="text-xs text-red-100">สถานะผู้ใช้งาน</p>
+                <p className="mt-1 text-xl font-black uppercase">{role}</p>
+                <div className="mt-3">
+                  <LogoutButton />
+                </div>
+              </div>
             </div>
-          </section>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-3 gap-4">
+          <InfoCard title="ชื่อ-นามสกุล" value={employee.full_name} icon="👤" />
+          <InfoCard title="รหัสพนักงาน" value={employee.employee_code} icon="🪪" />
+          <InfoCard title="แผนก" value={departmentName} icon="🏢" />
+        </section>
+
+        {isEmployee && (
+          <DashboardSection title="เมนูพนักงาน" subtitle="ยื่นคำขอและตรวจสอบสถานะ">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+              <MenuCard href="/dashboard/ot" title="ยื่น OT" desc="ขอทำงานล่วงเวลา" icon="⏱️" />
+              <MenuCard href="/dashboard/shift-change" title="เปลี่ยนกะ" desc="ยื่นคำขอเปลี่ยนกะ" icon="🔁" />
+              <MenuCard href="/dashboard/day-off" title="เปลี่ยนวันหยุด" desc="ยื่นคำขอเปลี่ยนวันหยุด" icon="📅" />
+              <MenuCard href="/dashboard/leave" title="ขอลา" desc="ยื่นคำขอลางาน" icon="📝" />
+              <MenuCard href="/dashboard/my-requests" title="รายการของฉัน" desc="ตรวจสอบสถานะคำขอ" icon="📋" highlight />
+            </div>
+          </DashboardSection>
         )}
 
-        {canManage && (
-          <section style={styles.section}>
-            <SectionTitle
-              title="เมนูผู้จัดการ"
-              subtitle="จัดการและอนุมัติคำขอ"
-            />
-
-            <div style={styles.fullGrid}>
+        {(isSM || isGM) && (
+          <DashboardSection
+            title={isGM ? "General Manager" : "เมนูผู้อนุมัติ"}
+            subtitle="ตรวจสอบและอนุมัติคำขอ"
+          >
+            <div className="grid gap-4 md:grid-cols-2">
               <MenuCard
                 href="/dashboard/manage-requests"
                 title="จัดการคำขอ"
-                desc="อนุมัติ / ไม่อนุมัติ / แก้ไขคำขอ"
+                desc="อนุมัติ / ตรวจสอบรายการคำขอ"
                 icon="✅"
-                fullWidth
+                highlight
               />
+
+              <ProfileCard employee={employee} departmentName={departmentName} />
             </div>
-          </section>
+          </DashboardSection>
         )}
 
         {isHR && (
-          <section style={styles.section}>
-            <SectionTitle
-              title="เมนู HR"
-              subtitle="จัดการข้อมูลระบบและรายงาน"
-            />
+          <DashboardSection title="เมนู HR" subtitle="จัดการข้อมูลระบบ">
+            <div className="grid gap-4 md:grid-cols-3">
+              <MenuCard href="/dashboard/manage-requests" title="จัดการคำขอ" desc="อนุมัติ / ตรวจสอบรายการ" icon="✅" highlight />
+              <MenuCard href="/dashboard/employees" title="จัดการพนักงาน" desc="เพิ่ม / แก้ไข / ค้นหา" icon="👥" />
+              <MenuCard href="/dashboard/export" title="Export Report" desc="ดาวน์โหลดรายงาน" icon="📤" />
+            </div>
+          </DashboardSection>
+        )}
 
-            <div style={styles.menuGrid}>
-              <MenuCard
-                href="/dashboard/employees"
-                title="จัดการข้อมูลพนักงาน"
-                desc="เพิ่ม / แก้ไข / ปิดใช้งานพนักงาน"
-                icon="👥"
+        {!isGM && (
+          <section className="rounded-[32px] border border-red-100 bg-white p-6 shadow-xl">
+            <p className="text-sm font-black tracking-[0.25em] text-red-500">
+              ANNOUNCEMENT
+            </p>
+
+            <h2 className="mt-2 text-2xl font-black text-slate-900">
+              ประชาสัมพันธ์
+            </h2>
+
+            <p className="mt-3 leading-7 text-slate-600">
+              กรุณาตรวจสอบข้อมูลก่อนส่งคำขอทุกครั้ง หากพบปัญหาในการใช้งานกรุณาติดต่อ HR
+            </p>
+
+            <div className="mt-5 grid gap-5 lg:grid-cols-2">
+              <img
+                src="/images/9hr.jpg"
+                alt="9hr"
+                className="h-[360px] w-full rounded-3xl object-contain shadow-xl"
               />
 
-              <MenuCard
-                href="/dashboard/export"
-                title="Export Excel"
-                desc="เลือกประเภทรายการและช่วงวันที่"
-                icon="📤"
+              <img
+                src="/images/8hr.jpg"
+                alt="8hr"
+                className="h-[360px] w-full rounded-3xl object-contain shadow-xl"
               />
             </div>
           </section>
@@ -125,251 +154,115 @@ export default async function DashboardPage() {
   );
 }
 
-function InfoCard({
-  title,
-  value,
-  icon,
-}: {
-  title: string;
-  value: string;
-  icon: string;
-}) {
+function DashboardSection({ title, subtitle, children }: any) {
   return (
-    <div style={styles.infoCard}>
-      <div style={styles.infoIcon}>{icon}</div>
+    <section className="space-y-4">
       <div>
-        <p style={styles.infoTitle}>{title}</p>
-        <p style={styles.infoValue}>{value}</p>
+        <h2 className="text-2xl font-black text-slate-900">{title}</h2>
+        <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+      </div>
+
+      {children}
+    </section>
+  );
+}
+
+function InfoCard({ title, value, icon }: any) {
+  return (
+    <div className="min-h-[96px] rounded-3xl border border-red-100 bg-white p-4 shadow-lg">
+      <div className="flex items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-100 text-2xl">
+          {icon}
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-xs font-bold text-slate-500">{title}</p>
+          <p className="mt-1 truncate text-base font-black text-slate-900">
+            {value}
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-function SectionTitle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div>
-      <h2 style={styles.sectionTitle}>{title}</h2>
-      <p style={styles.sectionSubtitle}>{subtitle}</p>
-    </div>
-  );
-}
-
-function MenuCard({
-  href,
-  title,
-  desc,
-  icon,
-  fullWidth = false,
-}: {
-  href: string;
-  title: string;
-  desc: string;
-  icon: string;
-  fullWidth?: boolean;
-}) {
+function MenuCard({ href, title, desc, icon, highlight = false }: any) {
   return (
     <Link
       href={href}
-      style={{
-        ...styles.menuCard,
-        minHeight: fullWidth ? 240 : 190,
-      }}
+      className={
+        highlight
+          ? "flex min-h-[190px] flex-col rounded-3xl bg-gradient-to-br from-red-700 via-red-600 to-rose-600 p-5 text-white shadow-xl transition hover:-translate-y-1"
+          : "flex min-h-[190px] flex-col rounded-3xl border border-red-100 bg-white p-5 shadow-lg transition hover:-translate-y-1 hover:border-red-300"
+      }
     >
-      <div>
-        <div style={styles.menuIcon}>{icon}</div>
-        <h3 style={styles.menuTitle}>{title}</h3>
-        <p style={styles.menuDesc}>{desc}</p>
+      <div
+        className={
+          highlight
+            ? "flex h-12 w-12 items-center justify-center rounded-2xl bg-white/20 text-3xl"
+            : "flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-3xl"
+        }
+      >
+        {icon}
       </div>
 
-      <div style={styles.menuLink}>เข้าใช้งาน →</div>
+      <h3
+        className={
+          highlight
+            ? "mt-4 text-xl font-black text-white"
+            : "mt-4 text-xl font-black text-slate-900"
+        }
+      >
+        {title}
+      </h3>
+
+      <p
+        className={
+          highlight
+            ? "mt-2 text-sm leading-6 text-red-100"
+            : "mt-2 text-sm leading-6 text-slate-500"
+        }
+      >
+        {desc}
+      </p>
+
+      <div
+        className={
+          highlight
+            ? "mt-auto pt-4 text-sm font-black text-white"
+            : "mt-auto pt-4 text-sm font-black text-red-600"
+        }
+      >
+        เข้าใช้งาน →
+      </div>
     </Link>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #fff5f5 0%, #ffffff 45%, #ffe4e6 100%)",
-    padding: "24px",
-    fontFamily:
-      "Arial, Helvetica, sans-serif",
-  },
+function ProfileCard({ employee, departmentName }: any) {
+  return (
+    <div className="flex min-h-[190px] flex-col rounded-3xl border border-red-100 bg-white p-5 shadow-lg">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-100 text-3xl">
+        👤
+      </div>
 
-  container: {
-    maxWidth: "1280px",
-    margin: "0 auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: "28px",
-  },
+      <h3 className="mt-4 text-xl font-black text-slate-900">ข้อมูลส่วนตัว</h3>
 
-  hero: {
-    background: "linear-gradient(135deg, #b91c1c, #dc2626)",
-    borderRadius: "28px",
-    padding: "32px",
-    color: "white",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "20px",
-    boxShadow: "0 18px 40px rgba(185, 28, 28, 0.28)",
-  },
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <ProfileRow label="ชื่อ" value={employee.full_name} />
+        <ProfileRow label="รหัส" value={employee.employee_code} />
+        <ProfileRow label="ตำแหน่ง" value={employee.position || "-"} />
+        <ProfileRow label="แผนก" value={departmentName} />
+      </div>
+    </div>
+  );
+}
 
-  systemName: {
-    fontSize: "14px",
-    fontWeight: 700,
-    letterSpacing: "0.08em",
-    color: "#fee2e2",
-  },
-
-  heroTitle: {
-    marginTop: "10px",
-    fontSize: "34px",
-    fontWeight: 800,
-  },
-
-  heroText: {
-    marginTop: "8px",
-    color: "#fee2e2",
-    fontSize: "16px",
-  },
-
-  heroRight: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end",
-    gap: "12px",
-  },
-
-  roleBadge: {
-    background: "white",
-    color: "#b91c1c",
-    padding: "10px 16px",
-    borderRadius: "999px",
-    fontSize: "14px",
-    fontWeight: 800,
-  },
-
-  infoGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-    gap: "16px",
-  },
-
-  infoCard: {
-    background: "white",
-    borderRadius: "22px",
-    padding: "24px",
-    display: "flex",
-    alignItems: "center",
-    gap: "18px",
-    boxShadow: "0 10px 25px rgba(15, 23, 42, 0.08)",
-    border: "1px solid #fee2e2",
-  },
-
-  infoIcon: {
-    width: "56px",
-    height: "56px",
-    borderRadius: "18px",
-    background: "#fee2e2",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "28px",
-  },
-
-  infoTitle: {
-    color: "#64748b",
-    fontSize: "14px",
-    fontWeight: 600,
-  },
-
-  infoValue: {
-    marginTop: "8px",
-    color: "#0f172a",
-    fontSize: "22px",
-    fontWeight: 800,
-  },
-
-  section: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
-  },
-
-  sectionTitle: {
-    fontSize: "28px",
-    fontWeight: 900,
-    color: "#0f172a",
-  },
-
-  sectionSubtitle: {
-    marginTop: "4px",
-    color: "#64748b",
-    fontSize: "15px",
-  },
-
-  menuGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-    gap: "20px",
-  },
-
-  fullGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "20px",
-  },
-
-  menuCard: {
-    background: "white",
-    borderRadius: "28px",
-    padding: "28px",
-    textDecoration: "none",
-    color: "inherit",
-    border: "1px solid #fecaca",
-    boxShadow: "0 12px 28px rgba(15, 23, 42, 0.08)",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
-  },
-
-  menuIcon: {
-    width: "70px",
-    height: "70px",
-    borderRadius: "22px",
-    background: "#fee2e2",
-    color: "#b91c1c",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "36px",
-    marginBottom: "22px",
-  },
-
-  menuTitle: {
-    fontSize: "26px",
-    fontWeight: 900,
-    color: "#0f172a",
-  },
-
-  menuDesc: {
-    marginTop: "10px",
-    color: "#64748b",
-    fontSize: "16px",
-    lineHeight: 1.7,
-  },
-
-  menuLink: {
-    marginTop: "24px",
-    color: "#dc2626",
-    fontSize: "16px",
-    fontWeight: 800,
-  },
-};
+function ProfileRow({ label, value }: any) {
+  return (
+    <div className="rounded-2xl bg-red-50 px-4 py-3">
+      <p className="text-xs font-bold text-slate-500">{label}</p>
+      <p className="mt-1 truncate font-black text-slate-900">{value}</p>
+    </div>
+  );
+}

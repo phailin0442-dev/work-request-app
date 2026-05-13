@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseAdmin = createClient(
@@ -7,247 +6,163 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function toCsvValue(value: any) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
-}
-
 export async function GET(req: Request) {
-  const cookieStore = await cookies();
-  const employeeId = cookieStore.get("employee_session")?.value;
+  try {
+    const { searchParams } = new URL(req.url);
 
-  if (!employeeId) {
-    return NextResponse.json({ ok: false }, { status: 401 });
-  }
+    const type = searchParams.get("type") || "all";
 
-  const { data: currentUser } = await supabaseAdmin
-    .from("employees")
-    .select("role")
-    .eq("id", employeeId)
-    .eq("active", true)
-    .maybeSingle();
+    const rows: any[] = [];
 
-  const role = String(currentUser?.role || "").trim().toLowerCase();
+    async function loadTable(
+      tableName: string,
+      requestType: string
+    ) {
+      const { data, error } = await supabaseAdmin
+        .from(tableName)
+        .select("*")
+        .order("created_at", {
+          ascending: false,
+        });
 
-  if (role !== "hr") {
-    return NextResponse.json(
-      { ok: false, message: "เฉพาะ HR เท่านั้น" },
-      { status: 403 }
-    );
-  }
+      if (error) {
+        console.error(error);
+        return;
+      }
 
-  const url = new URL(req.url);
-  const type = url.searchParams.get("type") || "all";
-  const from = url.searchParams.get("from") || "";
-  const to = url.searchParams.get("to") || "";
+      for (const item of data || []) {
+        rows.push({
+          ประเภทคำขอ: requestType,
 
-  const { data: employees } = await supabaseAdmin
-    .from("employees")
-    .select(`
-      employee_code,
-      full_name,
-      position,
-      department_id,
-      division_id
-    `);
+          วันที่สร้าง:
+            item.created_at
+              ? new Date(
+                  item.created_at
+                ).toLocaleString("th-TH")
+              : "-",
 
-  const { data: departments } = await supabaseAdmin
-    .from("departments")
-    .select("id, name");
+          รหัสพนักงาน:
+            item.employee_code || "-",
 
-  const { data: divisions } = await supabaseAdmin
-    .from("divisions")
-    .select("id, name");
+          ชื่อพนักงาน:
+            item.full_name || "-",
 
-  const departmentMap = new Map(
-    (departments || []).map((x: any) => [x.id, x.name])
-  );
+          แผนก:
+            item.department_name || "-",
 
-  const divisionMap = new Map(
-    (divisions || []).map((x: any) => [x.id, x.name])
-  );
+          ตำแหน่ง:
+            item.position || "-",
 
-  const employeeMap = new Map(
-    (employees || []).map((emp: any) => [
-      emp.employee_code,
+          สถานะ:
+            item.status || "-",
+
+          วันที่:
+            item.request_date ||
+            item.leave_day ||
+            item.day_off_date ||
+            "-",
+
+          วันที่สิ้นสุด:
+            item.leave_to_day || "-",
+
+          เวลาเริ่ม:
+            item.start_time || "-",
+
+          เวลาสิ้นสุด:
+            item.end_time || "-",
+
+          กะเดิม:
+            item.old_shift || "-",
+
+          กะใหม่:
+            item.new_shift || "-",
+
+          ประเภทการลา:
+            item.leave_type || "-",
+
+          จำนวนวัน:
+            item.leave_total_days || "-",
+
+          เหตุผล:
+            item.reason ||
+            item.leave_reason ||
+            item.detail ||
+            "-",
+
+          หมายเหตุ:
+            item.remark || "-",
+
+          ผู้อนุมัติ:
+            item.approved_by_name || "-",
+        });
+      }
+    }
+
+    if (type === "all" || type === "ot") {
+      await loadTable("ot_requests", "OT");
+    }
+
+    if (type === "all" || type === "leave") {
+      await loadTable(
+        "leave_form_requests",
+        "LEAVE"
+      );
+    }
+
+    if (type === "all" || type === "shift") {
+      await loadTable(
+        "shift_change_requests",
+        "SHIFT"
+      );
+    }
+
+    if (type === "all" || type === "dayoff") {
+      await loadTable(
+        "day_off_change_requests",
+        "DAYOFF"
+      );
+    }
+
+    const headers = Object.keys(rows[0] || {});
+
+    const csv = [
+      headers.join(","),
+
+      ...rows.map((row) =>
+        headers
+          .map((field) =>
+            `"${String(
+              row[field] ?? ""
+            ).replace(/"/g, '""')}"`
+          )
+          .join(",")
+      ),
+    ].join("\n");
+
+    return new NextResponse(
+      "\uFEFF" + csv,
       {
-        full_name: emp.full_name || "",
-        position: emp.position || "",
-        department: departmentMap.get(emp.department_id) || "",
-        division: divisionMap.get(emp.division_id) || "",
-      },
-    ])
-  );
+        status: 200,
+        headers: {
+          "Content-Type":
+            "text/csv; charset=utf-8",
 
-  function getEmployeeInfo(employeeCode: string) {
-    return (
-      employeeMap.get(employeeCode) || {
-        full_name: "",
-        position: "",
-        department: "",
-        division: "",
+          "Content-Disposition":
+            'attachment; filename="report.csv"',
+        },
+      }
+    );
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        message:
+          error?.message ||
+          "เกิดข้อผิดพลาด",
+      },
+      {
+        status: 500,
       }
     );
   }
-
-  function applyCreatedAtFilter(query: any) {
-    if (from) {
-      query = query.gte("created_at", `${from}T00:00:00`);
-    }
-
-    if (to) {
-      query = query.lte("created_at", `${to}T23:59:59`);
-    }
-
-    return query;
-  }
-
-  const rows: any[][] = [
-    [
-      "ประเภท",
-      "รหัสพนักงาน",
-      "ชื่อ-นามสกุล",
-      "ตำแหน่ง",
-      "แผนก",
-      "ฝ่าย",
-      "รายละเอียด",
-      "เหตุผล",
-      "สถานะ",
-      "วันที่สร้าง",
-    ],
-  ];
-
-  if (type === "all" || type === "ot") {
-    const query = applyCreatedAtFilter(
-      supabaseAdmin
-        .from("ot_requests")
-        .select("*")
-        .order("created_at", { ascending: false })
-    );
-
-    const { data } = await query;
-
-    rows.push(
-      ...(data || []).map((x: any) => {
-        const emp = getEmployeeInfo(x.employee_code);
-
-        return [
-          "OT",
-          x.employee_code,
-          emp.full_name,
-          emp.position,
-          emp.department,
-          emp.division,
-          `${x.ot_date || ""} ${x.start_time || ""}-${x.end_time || ""}`,
-          x.reason,
-          x.status,
-          x.created_at,
-        ];
-      })
-    );
-  }
-
-  if (type === "all" || type === "shift") {
-    const query = applyCreatedAtFilter(
-      supabaseAdmin
-        .from("shift_change_requests")
-        .select("*")
-        .order("created_at", { ascending: false })
-    );
-
-    const { data } = await query;
-
-    rows.push(
-      ...(data || []).map((x: any) => {
-        const emp = getEmployeeInfo(x.employee_code);
-
-        return [
-          "เปลี่ยนกะ",
-          x.employee_code,
-          emp.full_name,
-          emp.position,
-          emp.department,
-          emp.division,
-          `${x.shift_date || ""} ${x.old_shift_code || ""} ${
-            x.old_shift_time || ""
-          } -> ${x.new_shift_code || ""} ${x.new_shift_time || ""}`,
-          x.reason,
-          x.status,
-          x.created_at,
-        ];
-      })
-    );
-  }
-
-  if (type === "all" || type === "dayoff") {
-    const query = applyCreatedAtFilter(
-      supabaseAdmin
-        .from("day_off_change_requests")
-        .select("*")
-        .order("created_at", { ascending: false })
-    );
-
-    const { data } = await query;
-
-    rows.push(
-      ...(data || []).map((x: any) => {
-        const emp = getEmployeeInfo(x.employee_code);
-
-        return [
-          "เปลี่ยนวันหยุด",
-          x.employee_code,
-          emp.full_name,
-          emp.position,
-          emp.department,
-          emp.division,
-          `${x.old_day_off || ""} -> ${x.new_day_off || ""}`,
-          x.reason,
-          x.status,
-          x.created_at,
-        ];
-      })
-    );
-  }
-
-  if (type === "all" || type === "leave") {
-    const query = applyCreatedAtFilter(
-      supabaseAdmin
-        .from("leave_form_requests")
-        .select("*")
-        .order("created_at", { ascending: false })
-    );
-
-    const { data } = await query;
-
-    rows.push(
-      ...(data || []).map((x: any) => {
-        const emp = getEmployeeInfo(x.employee_code);
-
-        return [
-          "ลา",
-          x.employee_code,
-          emp.full_name,
-          emp.position,
-          emp.department,
-          emp.division,
-          `${x.leave_day || ""} ถึง ${x.leave_to_day || ""} จำนวน ${
-            x.leave_total_days || ""
-          } วัน / ${x.leave_type || ""}`,
-          x.leave_reason,
-          x.status,
-          x.created_at,
-        ];
-      })
-    );
-  }
-
-  const csv =
-    "\uFEFF" +
-    rows.map((row) => row.map(toCsvValue).join(",")).join("\n");
-
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="requests-export-${type}.csv"`,
-    },
-  });
 }

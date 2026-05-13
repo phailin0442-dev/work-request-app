@@ -28,7 +28,9 @@ export async function POST(req: Request) {
       .eq("active", true)
       .maybeSingle();
 
-    const role = String(currentUser?.role || "").trim().toLowerCase();
+    const role = String(currentUser?.role || "")
+      .trim()
+      .toLowerCase();
 
     if (role !== "hr") {
       return NextResponse.json(
@@ -47,10 +49,24 @@ export async function POST(req: Request) {
     }
 
     const updateData = {
-      employee_code: String(body.employee_code || "").trim().toUpperCase(),
+      employee_code: String(body.employee_code || "")
+        .trim()
+        .toUpperCase(),
+
       full_name: String(body.full_name || "").trim(),
+
+      department_name: String(
+        body.department_name || ""
+      ).trim(),
+
       position: String(body.position || "").trim(),
-      role: String(body.role || "").trim().toLowerCase(),
+
+      role: String(body.role || "")
+        .trim()
+        .toLowerCase(),
+
+      pincode: String(body.pincode || "").trim(),
+
       active: Boolean(body.active),
     };
 
