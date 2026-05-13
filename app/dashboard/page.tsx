@@ -104,8 +104,6 @@ export default async function DashboardPage() {
                 icon="✅"
                 highlight
               />
-
-              <ProfileCard employee={employee} departmentName={departmentName} />
             </div>
           </DashboardSection>
         )}
