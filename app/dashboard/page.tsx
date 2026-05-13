@@ -96,7 +96,7 @@ export default async function DashboardPage() {
             title={isGM ? "General Manager" : "เมนูผู้อนุมัติ"}
             subtitle="ตรวจสอบและอนุมัติคำขอ"
           >
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 grid-cols-1">
               <MenuCard
                 href="/dashboard/manage-requests"
                 title="จัดการคำขอ"
