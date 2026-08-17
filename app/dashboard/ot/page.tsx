@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 
+const OT_REASONS = [
+  "OTก่อนวันทำงาน",
+  "OTหลังวันทำงาน",
+  "OTวันหยุด / วันนักขัตฤกษ์",
+  "OTก่อนวันหยุด / วันนักขัตฤกษ์",
+  "OTหลังวันหยุด / วันนักขัตฤกษ์",
+];
+
 export default function OTPage() {
   const [otType, setOtType] = useState("");
   const [otDate, setOtDate] = useState("");
@@ -14,6 +22,11 @@ export default function OTPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (!reason) {
+      setMessage("กรุณาเลือกเหตุผลการขอ OT");
+      return;
+    }
 
     setLoading(true);
     setMessage("");
@@ -77,11 +90,10 @@ export default function OTPage() {
                 <button
                   type="button"
                   onClick={() => setOtType("ทำงานล่วงเวลา")}
-                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
-                    otType === "ทำงานล่วงเวลา"
+                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${otType === "ทำงานล่วงเวลา"
                       ? "border-red-600 bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg"
                       : "border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50"
-                  }`}
+                    }`}
                 >
                   <div className="text-lg font-bold">
                     ทำงานล่วงเวลา
@@ -95,11 +107,10 @@ export default function OTPage() {
                 <button
                   type="button"
                   onClick={() => setOtType("ทำงานในวันหยุด")}
-                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
-                    otType === "ทำงานในวันหยุด"
+                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${otType === "ทำงานในวันหยุด"
                       ? "border-red-600 bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg"
                       : "border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50"
-                  }`}
+                    }`}
                 >
                   <div className="text-lg font-bold">
                     ทำงานในวันหยุด
@@ -158,13 +169,19 @@ export default function OTPage() {
                 เหตุผล
               </label>
 
-              <textarea
+              <select
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                rows={5}
-                placeholder="กรอกรายละเอียดเหตุผลการขอ OT..."
                 className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none transition focus:border-red-400 focus:ring-4 focus:ring-red-100"
-              />
+              >
+                <option value="">-- เลือกเหตุผลการขอ OT --</option>
+
+                {OT_REASONS.map((reasonOption) => (
+                  <option key={reasonOption} value={reasonOption}>
+                    {reasonOption}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {message && (

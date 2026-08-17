@@ -855,6 +855,11 @@ export async function POST(req: Request) {
             ประเภทคำขอ:
               requestTypeLabel,
 
+            ประเภทOT:
+              requestType === "ot"
+                ? displayValue(item.ot_type)
+                : "-",
+
             วันที่สร้าง:
               formatDateTime(
                 item.created_at
@@ -958,6 +963,7 @@ export async function POST(req: Request) {
     worksheet["!cols"] = [
       { wch: 28 }, // เลขชุดงาน
       { wch: 18 }, // ประเภทคำขอ
+      { wch: 24 }, // ประเภท OT
       { wch: 22 }, // วันที่สร้าง
       { wch: 16 }, // รหัสพนักงาน
       { wch: 28 }, // ชื่อพนักงาน

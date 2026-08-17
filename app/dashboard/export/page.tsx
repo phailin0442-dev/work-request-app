@@ -234,8 +234,8 @@ export default function ExportPage() {
             {message && (
               <div
                 className={`rounded-2xl border px-5 py-4 text-sm font-bold ${messageType === "success"
-                    ? "border-green-200 bg-green-50 text-green-700"
-                    : "border-red-200 bg-red-50 text-red-700"
+                  ? "border-green-200 bg-green-50 text-green-700"
+                  : "border-red-200 bg-red-50 text-red-700"
                   }`}
               >
                 {message}
