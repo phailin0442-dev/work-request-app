@@ -236,6 +236,108 @@ function getEndDate(
   }
 }
 
+/*
+ * คำนวณ "วันที่ของรายการจริง" ของแต่ละประเภทคำขอ
+ * เพื่อใช้กรองตามช่วงวันที่ที่ HR เลือก
+ * (ไม่ใช่วันที่พนักงานกดส่งฟอร์ม)
+ */
+function getEventDateRange(
+  requestType: RequestType,
+  item: Record<string, any>
+): { start: string; end: string } | null {
+  switch (requestType) {
+    case "ot": {
+      const date = String(
+        item.ot_date || ""
+      ).trim();
+
+      if (!date) return null;
+
+      return { start: date, end: date };
+    }
+
+    case "shift": {
+      const date = String(
+        item.shift_date || ""
+      ).trim();
+
+      if (!date) return null;
+
+      return { start: date, end: date };
+    }
+
+    case "dayoff": {
+      /*
+       * ใช้ old_day_off เพราะเป็นวันที่จริง
+       * ที่ตารางงานจะได้รับผลกระทบ
+       */
+      const date = String(
+        item.old_day_off || ""
+      ).trim();
+
+      if (!date) return null;
+
+      return { start: date, end: date };
+    }
+
+    case "leave": {
+      const start = String(
+        item.leave_day || ""
+      ).trim();
+
+      if (!start) return null;
+
+      const end =
+        String(
+          item.leave_to_day || ""
+        ).trim() || start;
+
+      return { start, end };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/*
+ * เช็กว่าวันที่ของรายการ (event date)
+ * ทับซ้อนกับช่วงวันที่ที่ HR เลือกหรือไม่
+ * รองรับกรณีลาหลายวัน (ช่วงเทียบกับช่วง)
+ */
+function isWithinDateFilter(
+  eventRange: {
+    start: string;
+    end: string;
+  } | null,
+  startDate: string,
+  endDate: string
+) {
+  if (!startDate && !endDate) {
+    return true;
+  }
+
+  if (!eventRange) {
+    return false;
+  }
+
+  if (
+    startDate &&
+    eventRange.end < startDate
+  ) {
+    return false;
+  }
+
+  if (
+    endDate &&
+    eventRange.start > endDate
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 function getOldShift(item: Record<string, any>) {
   const code = String(
     item.old_shift_code || ""
@@ -273,15 +375,6 @@ function getReason(item: Record<string, any>) {
     item.reason ||
     item.leave_reason ||
     item.detail ||
-    "-"
-  );
-}
-
-function getRemark(item: Record<string, any>) {
-  return (
-    item.remark ||
-    item.note ||
-    item.comment ||
     "-"
   );
 }
@@ -517,29 +610,19 @@ export async function POST(req: Request) {
       const config =
         requestConfigs[requestType];
 
-      let query = supabaseAdmin
+      /*
+       * ไม่กรองวันที่ตรงนี้แล้ว เพราะตัวกรองวันที่
+       * ต้องอิงจาก "วันที่ของรายการจริง" เช่น
+       * วันที่ OT / วันที่เปลี่ยนกะ / วันที่ลา
+       * ไม่ใช่วันที่พนักงานกดส่งฟอร์ม (created_at)
+       * จะไปกรองด้วย getEventDateRange ในขั้นตอนถัดไป
+       */
+      const query = supabaseAdmin
         .from(config.tableName)
         .select("*")
         .order("created_at", {
           ascending: false,
         });
-
-      /*
-       * กรองตามวันที่สร้างคำขอ
-       */
-      if (startDate) {
-        query = query.gte(
-          "created_at",
-          `${startDate}T00:00:00.000+07:00`
-        );
-      }
-
-      if (endDate) {
-        query = query.lte(
-          "created_at",
-          `${endDate}T23:59:59.999+07:00`
-        );
-      }
 
       const {
         data: requestData,
@@ -588,6 +671,22 @@ export async function POST(req: Request) {
         if (
           !isAllDepartments &&
           currentDepartment !== wantedDepartment
+        ) {
+          return false;
+        }
+
+        const eventDateRange =
+          getEventDateRange(
+            requestType,
+            item
+          );
+
+        if (
+          !isWithinDateFilter(
+            eventDateRange,
+            startDate,
+            endDate
+          )
         ) {
           return false;
         }
@@ -932,16 +1031,6 @@ export async function POST(req: Request) {
                 getReason(item)
               ),
 
-            หมายเหตุ:
-              displayValue(
-                getRemark(item)
-              ),
-
-            ผู้อนุมัติ:
-              displayValue(
-                item.approved_by_name
-              ),
-
             ผู้รับชุดงาน:
               currentHr.full_name ||
               currentHr.employee_code,
@@ -979,8 +1068,6 @@ export async function POST(req: Request) {
       { wch: 20 }, // ประเภทการลา
       { wch: 12 }, // จำนวนวัน
       { wch: 40 }, // เหตุผล
-      { wch: 35 }, // หมายเหตุ
-      { wch: 28 }, // ผู้อนุมัติ
       { wch: 28 }, // ผู้รับชุดงาน
       { wch: 20 }, // สถานะดำเนินการ
     ];
