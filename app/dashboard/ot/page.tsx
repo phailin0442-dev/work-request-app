@@ -90,11 +90,10 @@ export default function OTPage() {
                 <button
                   type="button"
                   onClick={() => setOtType("ทำงานล่วงเวลา")}
-                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
-                    otType === "ทำงานล่วงเวลา"
+                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${otType === "ทำงานล่วงเวลา"
                       ? "border-red-600 bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg"
                       : "border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50"
-                  }`}
+                    }`}
                 >
                   <div className="text-lg font-bold">
                     ทำงานล่วงเวลา
@@ -108,11 +107,10 @@ export default function OTPage() {
                 <button
                   type="button"
                   onClick={() => setOtType("ทำงานในวันหยุด")}
-                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${
-                    otType === "ทำงานในวันหยุด"
+                  className={`rounded-2xl border px-5 py-4 text-left transition-all duration-200 ${otType === "ทำงานในวันหยุด"
                       ? "border-red-600 bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-lg"
                       : "border-slate-200 bg-white text-slate-700 hover:border-red-300 hover:bg-red-50"
-                  }`}
+                    }`}
                 >
                   <div className="text-lg font-bold">
                     ทำงานในวันหยุด

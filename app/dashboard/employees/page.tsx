@@ -2,51 +2,154 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
-import EmployeeTable from "./EmployeeTable.tsx";
+import EmployeeTable from "./EmployeeTable";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !serviceRoleKey) {
+  throw new Error(
+    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY"
+  );
+}
 
 const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  supabaseUrl,
+  serviceRoleKey,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  }
 );
+
+type EmployeeRow = {
+  id: string;
+  employee_code: string;
+  full_name: string;
+  position: string | null;
+  role: string;
+  active: boolean;
+  department_id: string | null;
+  department_name: string | null;
+  pincode: string | null;
+};
+
+type DepartmentRow = {
+  id: string;
+  name: string;
+};
 
 export default async function EmployeesPage() {
   const cookieStore = await cookies();
-  const employeeId = cookieStore.get("employee_session")?.value;
+  const employeeId =
+    cookieStore.get("employee_session")?.value;
 
-  if (!employeeId) redirect("/login");
+  if (!employeeId) {
+    redirect("/login");
+  }
 
-  const { data: currentUser } = await supabaseAdmin
+  const {
+    data: currentUser,
+    error: currentUserError,
+  } = await supabaseAdmin
     .from("employees")
     .select("role, full_name")
     .eq("id", employeeId)
     .eq("active", true)
     .maybeSingle();
 
-  const role = String(currentUser?.role || "").trim().toLowerCase();
+  if (currentUserError || !currentUser) {
+    redirect("/login");
+  }
 
-  if (role !== "hr") redirect("/dashboard");
+  const role = String(currentUser.role || "")
+    .trim()
+    .toLowerCase();
 
-  const { data: employees }: { data: any[] | null } = await supabaseAdmin
-    .from("employees")
-    .select(`
-      id,
-      employee_code,
-      full_name,
-      position,
-      role,
-      active,
-      department_name,
-      pincode
-    `)
-    .order("employee_code", { ascending: true });
+  if (role !== "hr") {
+    redirect("/dashboard");
+  }
 
-  const employeeList = employees ?? [];
+  const [
+    { data: employees, error: employeesError },
+    { data: departments, error: departmentsError },
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("employees")
+      .select(`
+        id,
+        employee_code,
+        full_name,
+        position,
+        role,
+        active,
+        department_id,
+        department_name,
+        pincode
+      `)
+      .order("employee_code", {
+        ascending: true,
+      }),
+
+    supabaseAdmin
+      .from("departments")
+      .select("id, name")
+      .order("name", {
+        ascending: true,
+      }),
+  ]);
+
+  if (employeesError) {
+    console.error(
+      "โหลดข้อมูลพนักงานไม่สำเร็จ:",
+      employeesError
+    );
+  }
+
+  if (departmentsError) {
+    console.error(
+      "โหลดข้อมูลแผนกไม่สำเร็จ:",
+      departmentsError
+    );
+  }
+
+  const employeeList =
+    (employees || []) as EmployeeRow[];
+
+  const departmentList =
+    (departments || []) as DepartmentRow[];
 
   const totalEmployees = employeeList.length;
-  const totalEmployee = employeeList.filter((e) => e.role === "employee").length;
-  const totalSM = employeeList.filter((e) => e.role === "section_manager").length;
-  const totalHR = employeeList.filter((e) => e.role === "hr").length;
-  const totalGM = employeeList.filter((e) => e.role === "general_manager").length;
+
+  const totalEmployee = employeeList.filter(
+    (employee) =>
+      String(employee.role || "")
+        .trim()
+        .toLowerCase() === "employee"
+  ).length;
+
+  const totalSM = employeeList.filter(
+    (employee) =>
+      String(employee.role || "")
+        .trim()
+        .toLowerCase() === "section_manager"
+  ).length;
+
+  const totalHR = employeeList.filter(
+    (employee) =>
+      String(employee.role || "")
+        .trim()
+        .toLowerCase() === "hr"
+  ).length;
+
+  const totalGM = employeeList.filter(
+    (employee) =>
+      String(employee.role || "")
+        .trim()
+        .toLowerCase() === "general_manager"
+  ).length;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-red-50 via-white to-rose-100 p-6">
@@ -77,26 +180,60 @@ export default async function EmployeesPage() {
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <SummaryCard title="ทั้งหมด" value={totalEmployees} />
-          <SummaryCard title="พนักงาน" value={totalEmployee} />
-          <SummaryCard title="SM" value={totalSM} />
-          <SummaryCard title="HR" value={totalHR} />
-          <SummaryCard title="GM" value={totalGM} />
+          <SummaryCard
+            title="ทั้งหมด"
+            value={totalEmployees}
+          />
+
+          <SummaryCard
+            title="พนักงาน"
+            value={totalEmployee}
+          />
+
+          <SummaryCard
+            title="SM"
+            value={totalSM}
+          />
+
+          <SummaryCard
+            title="HR"
+            value={totalHR}
+          />
+
+          <SummaryCard
+            title="GM"
+            value={totalGM}
+          />
         </section>
 
-        <EmployeeTable employees={employeeList} />
+        <EmployeeTable
+          employees={employeeList}
+          departments={departmentList}
+        />
       </div>
     </main>
   );
 }
 
-function SummaryCard({ title, value }: { title: string; value: number }) {
+function SummaryCard({
+  title,
+  value,
+}: {
+  title: string;
+  value: number;
+}) {
   return (
     <div className="rounded-3xl border border-red-100 bg-white/90 p-5 shadow-xl">
-      <p className="text-sm font-bold text-slate-500">{title}</p>
+      <p className="text-sm font-bold text-slate-500">
+        {title}
+      </p>
+
       <p className="mt-2 text-3xl font-black text-red-700">
         {value}
-        <span className="ml-1 text-sm font-bold text-slate-500">คน</span>
+
+        <span className="ml-1 text-sm font-bold text-slate-500">
+          คน
+        </span>
       </p>
     </div>
   );

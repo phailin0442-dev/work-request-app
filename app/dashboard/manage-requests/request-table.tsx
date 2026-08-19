@@ -5,19 +5,28 @@ import { useMemo, useState } from "react";
 
 type RequestType = "ot" | "shift" | "dayoff" | "leave";
 
+type DepartmentOption = {
+  id: string;
+  name: string;
+};
+
+type RequestTableProps = {
+  title: string;
+  table: string;
+  items: any[];
+  type: RequestType;
+  role: string;
+  departments: DepartmentOption[];
+};
+
 export default function RequestTable({
   title,
   table,
   items,
   type,
   role,
-}: {
-  title: string;
-  table: string;
-  items: any[];
-  type: RequestType;
-  role: string;
-}) {
+  departments,
+}: RequestTableProps) {
   const router = useRouter();
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -27,9 +36,12 @@ export default function RequestTable({
 
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  const isGM = role === "general_manager";
   const isHR = role === "hr";
+  const canFilterDepartment = isGM || isHR;
 
   function getRequestDate(item: any) {
     if (type === "ot") return String(item.ot_date || "");
@@ -39,6 +51,48 @@ export default function RequestTable({
     return "";
   }
 
+  function getDepartmentKey(item: any) {
+    return String(
+      item.department_id ||
+      item.department_name ||
+      ""
+    ).trim();
+  }
+
+  function formatCreatedAt(value: unknown) {
+    if (!value) return "-";
+
+    const date = new Date(String(value));
+
+    if (Number.isNaN(date.getTime())) {
+      return "-";
+    }
+
+    return date.toLocaleString("th-TH", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Bangkok",
+    });
+  }
+
+  const departmentOptions = useMemo(() => {
+    return departments
+      .map((department) => ({
+        value: String(department.id || "").trim(),
+        label: String(department.name || "").trim(),
+      }))
+      .filter(
+        (department) =>
+          department.value && department.label
+      )
+      .sort((a, b) =>
+        a.label.localeCompare(b.label, "th")
+      );
+  }, [departments]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       const requestDate = getRequestDate(item);
@@ -47,6 +101,14 @@ export default function RequestTable({
 
       if (dateFrom && requestDate < dateFrom) return false;
       if (dateTo && requestDate > dateTo) return false;
+
+      if (
+        canFilterDepartment &&
+        departmentFilter !== "all" &&
+        getDepartmentKey(item) !== departmentFilter
+      ) {
+        return false;
+      }
 
       if (isHR && statusFilter !== "all") {
         if (statusFilter === "pending") {
@@ -68,11 +130,22 @@ export default function RequestTable({
 
       return true;
     });
-  }, [items, dateFrom, dateTo, statusFilter, isHR]);
+  }, [
+    items,
+    dateFrom,
+    dateTo,
+    departmentFilter,
+    statusFilter,
+    canFilterDepartment,
+    isHR,
+    type,
+  ]);
 
   function toggleOne(id: string) {
     setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id)
+        ? prev.filter((x) => x !== id)
+        : [...prev, id]
     );
   }
 
@@ -81,16 +154,17 @@ export default function RequestTable({
       .map((item) => String(item.request_id || "").trim())
       .filter(Boolean);
 
-    if (selectedIds.length === validIds.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(validIds);
-    }
+    const allSelected =
+      validIds.length > 0 &&
+      validIds.every((id) => selectedIds.includes(id));
+
+    setSelectedIds(allSelected ? [] : validIds);
   }
 
   function clearFilter() {
     setDateFrom("");
     setDateTo("");
+    setDepartmentFilter("all");
     setStatusFilter("all");
     setSelectedIds([]);
   }
@@ -118,62 +192,84 @@ export default function RequestTable({
       return;
     }
 
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    const res = await fetch("/api/update-request-status", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        table,
-        action,
-        request_ids: selectedIds,
-      }),
-    });
+      const res = await fetch("/api/update-request-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          table,
+          action,
+          request_ids: selectedIds,
+        }),
+      });
 
-    const data = await res.json();
-    setLoading(false);
+      const data = await res.json();
 
-    if (!data.ok) {
-      alert(data.message || "อัปเดตไม่สำเร็จ");
-      return;
+      if (!res.ok || !data.ok) {
+        alert(data.message || "อัปเดตไม่สำเร็จ");
+        return;
+      }
+
+      setSelectedIds([]);
+      router.refresh();
+    } catch (error) {
+      console.error("Update request status error:", error);
+      alert("ไม่สามารถเชื่อมต่อระบบได้");
+    } finally {
+      setLoading(false);
     }
-
-    setSelectedIds([]);
-    router.refresh();
   }
 
   async function saveEdit() {
     if (!editingId) return;
 
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    const res = await fetch("/api/update-request-data", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        table,
-        request_id: editingId,
-        type,
-        data: editForm,
-      }),
-    });
+      const res = await fetch("/api/update-request-data", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          table,
+          request_id: editingId,
+          type,
+          data: editForm,
+        }),
+      });
 
-    const data = await res.json();
-    setLoading(false);
+      const data = await res.json();
 
-    if (!data.ok) {
-      alert(data.message || "แก้ไขไม่สำเร็จ");
-      return;
+      if (!res.ok || !data.ok) {
+        alert(data.message || "แก้ไขไม่สำเร็จ");
+        return;
+      }
+
+      setEditingId(null);
+      setEditForm({});
+      router.refresh();
+    } catch (error) {
+      console.error("Update request data error:", error);
+      alert("ไม่สามารถเชื่อมต่อระบบได้");
+    } finally {
+      setLoading(false);
     }
-
-    setEditingId(null);
-    setEditForm({});
-    router.refresh();
   }
+
+  const filteredRequestIds = filteredItems
+    .map((item) => String(item.request_id || "").trim())
+    .filter(Boolean);
+
+  const allFilteredSelected =
+    filteredRequestIds.length > 0 &&
+    filteredRequestIds.every((id) =>
+      selectedIds.includes(id)
+    );
 
   return (
     <section className="overflow-hidden rounded-2xl bg-white shadow">
@@ -188,57 +284,98 @@ export default function RequestTable({
         {filteredItems.length > 0 && (
           <div className="flex flex-wrap gap-2">
             <button
+              type="button"
               onClick={() => updateSelected("approve")}
               disabled={loading}
-              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              อนุมัติที่เลือก
+              {loading ? "กำลังดำเนินการ..." : "อนุมัติที่เลือก"}
             </button>
 
             <button
+              type="button"
               onClick={() => updateSelected("reject")}
               disabled={loading}
-              className="rounded-lg bg-red-950 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+              className="rounded-lg bg-red-950 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              ไม่อนุมัติที่เลือก
+              {loading ? "กำลังดำเนินการ..." : "ไม่อนุมัติที่เลือก"}
             </button>
           </div>
         )}
       </div>
 
       <div className="m-6 rounded-xl border bg-slate-50 p-4">
-        <div className={isHR ? "grid gap-3 sm:grid-cols-4" : "grid gap-3 sm:grid-cols-3"}>
+        <div
+          className={
+            isHR
+              ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.9fr]"
+              : canFilterDepartment
+                ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_0.9fr]"
+                : "grid gap-3 md:grid-cols-3"
+          }
+        >
           <div>
-            <label className="mb-1 block text-sm font-medium">วันที่เริ่มต้น</label>
+            <label className="mb-1 block text-sm font-medium">
+              วันที่เริ่มต้น
+            </label>
             <input
-              type="text"
+              type="date"
               value={dateFrom}
               onChange={(e) => {
                 setDateFrom(e.target.value);
                 setSelectedIds([]);
               }}
-              placeholder="เช่น 2026-05-01"
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium">วันที่สิ้นสุด</label>
+            <label className="mb-1 block text-sm font-medium">
+              วันที่สิ้นสุด
+            </label>
             <input
-              type="text"
+              type="date"
               value={dateTo}
               onChange={(e) => {
                 setDateTo(e.target.value);
                 setSelectedIds([]);
               }}
-              placeholder="เช่น 2026-05-31"
               className="w-full rounded-lg border px-3 py-2"
             />
           </div>
 
+          {canFilterDepartment && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                แผนก
+              </label>
+              <select
+                value={departmentFilter}
+                onChange={(e) => {
+                  setDepartmentFilter(e.target.value);
+                  setSelectedIds([]);
+                }}
+                className="w-full rounded-lg border px-3 py-2"
+              >
+                <option value="all">ทุกแผนก</option>
+
+                {departmentOptions.map((department) => (
+                  <option
+                    key={department.value}
+                    value={department.value}
+                  >
+                    {department.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {isHR && (
             <div>
-              <label className="mb-1 block text-sm font-medium">สถานะ</label>
+              <label className="mb-1 block text-sm font-medium">
+                สถานะ
+              </label>
               <select
                 value={statusFilter}
                 onChange={(e) => {
@@ -257,6 +394,7 @@ export default function RequestTable({
 
           <div className="flex items-end">
             <button
+              type="button"
               onClick={clearFilter}
               className="w-full rounded-lg bg-slate-900 px-4 py-2 font-medium text-white"
             >
@@ -267,59 +405,91 @@ export default function RequestTable({
       </div>
 
       {filteredItems.length === 0 ? (
-        <p className="mx-6 mb-6 text-sm text-slate-500">ไม่มีรายการ</p>
+        <p className="mx-6 mb-6 text-sm text-slate-500">
+          ไม่มีรายการ
+        </p>
       ) : (
-        <div className="mx-6 mb-6 overflow-x-auto">
-          <table className="w-full border-collapse text-sm">
+        <div className="mx-6 mb-6 overflow-hidden">
+          <table className="w-full table-fixed border-collapse text-[13px]">
             <thead>
               <tr className="border-b bg-slate-100 text-left">
-                <th className="p-3">
+                <th className="w-[3%] px-2 py-3">
                   <input
                     type="checkbox"
-                    checked={
-                      filteredItems.length > 0 &&
-                      selectedIds.length === filteredItems.length
-                    }
+                    checked={allFilteredSelected}
                     onChange={toggleAll}
+                    aria-label="เลือกรายการทั้งหมด"
                   />
                 </th>
-                <th className="p-3">พนักงาน</th>
-                <th className="p-3">วันที่</th>
-                <th className="p-3">รายละเอียด</th>
-                <th className="p-3">เหตุผล</th>
-                <th className="p-3">สถานะ</th>
-                {isHR && <th className="p-3">แก้ไข</th>}
+                <th className="w-[9%] px-2 py-3">รหัสพนักงาน</th>
+                <th className="w-[13%] px-2 py-3">ชื่อพนักงาน</th>
+                {canFilterDepartment && (
+                  <th className="w-[8%] px-2 py-3">แผนก</th>
+                )}
+                <th className="w-[12%] px-2 py-3">วันที่กรอก</th>
+                <th className="w-[10%] px-2 py-3">วันที่ขอ</th>
+                <th className="w-[12%] px-2 py-3">รายละเอียด</th>
+                <th className="w-[16%] px-2 py-3">เหตุผล</th>
+                <th className="w-[11%] px-2 py-3">สถานะ</th>
+                {isHR && <th className="w-[6%] px-2 py-3">แก้ไข</th>}
               </tr>
             </thead>
 
             <tbody>
               {filteredItems.map((item) => {
-                const isEditing = editingId === item.request_id;
+                const requestId = String(item.request_id || "");
+                const isEditing = editingId === requestId;
 
                 return (
-                  <tr key={item.request_id} className="border-b align-top">
-                    <td className="p-3">
+                  <tr
+                    key={requestId}
+                    className="border-b align-top"
+                  >
+                    <td className="px-2 py-3">
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(item.request_id)}
-                        onChange={() => toggleOne(item.request_id)}
+                        checked={selectedIds.includes(requestId)}
+                        onChange={() => toggleOne(requestId)}
+                        aria-label={`เลือกคำขอ ${requestId}`}
                       />
                     </td>
 
-                    <td className="p-3">{item.employee_code}</td>
+                    <td className="truncate px-2 py-3 font-medium" title={item.employee_code || "-"}>
+                      {item.employee_code || "-"}
+                    </td>
 
-                    <td className="p-3">
+                    <td className="truncate px-2 py-3" title={item.employee_name || "-"}>
+                      {item.employee_name || "-"}
+                    </td>
+
+                    {canFilterDepartment && (
+                      <td className="truncate px-2 py-3" title={item.department_name || "-"}>
+                        {item.department_name || "-"}
+                      </td>
+                    )}
+
+                    <td className="whitespace-nowrap px-2 py-3">
+                      {formatCreatedAt(item.created_at)}
+                    </td>
+
+                    <td className="break-words px-2 py-3">
                       {isEditing ? (
-                        <DateEdit type={type} form={editForm} setField={setField} />
+                        <DateEdit
+                          type={type}
+                          form={editForm}
+                          setField={setField}
+                        />
                       ) : (
                         <>
-                          {type === "ot" && item.ot_date}
-                          {type === "shift" && item.shift_date}
-                          {type === "dayoff" && item.old_day_off}
+                          {type === "ot" && (item.ot_date || "-")}
+                          {type === "shift" && (item.shift_date || "-")}
+                          {type === "dayoff" && (item.old_day_off || "-")}
                           {type === "leave" && (
                             <>
-                              {item.leave_day}
-                              {item.leave_to_day ? ` ถึง ${item.leave_to_day}` : ""}
+                              {item.leave_day || "-"}
+                              {item.leave_to_day
+                                ? ` ถึง ${item.leave_to_day}`
+                                : ""}
                               {item.leave_total_days
                                 ? ` (${item.leave_total_days} วัน)`
                                 : ""}
@@ -329,22 +499,32 @@ export default function RequestTable({
                       )}
                     </td>
 
-                    <td className="p-3">
+                    <td className="break-words px-2 py-3">
                       {isEditing ? (
-                        <DetailEdit type={type} form={editForm} setField={setField} />
+                        <DetailEdit
+                          type={type}
+                          form={editForm}
+                          setField={setField}
+                        />
                       ) : (
                         <>
-                          {type === "ot" && `${item.start_time} - ${item.end_time}`}
+                          {type === "ot" &&
+                            `${item.start_time || "-"} - ${item.end_time || "-"
+                            }`}
                           {type === "shift" &&
-                            `${item.old_shift_code} ${item.old_shift_time} → ${item.new_shift_code} ${item.new_shift_time}`}
+                            `${item.old_shift_code || "-"} ${item.old_shift_time || ""
+                            } → ${item.new_shift_code || "-"} ${item.new_shift_time || ""
+                            }`}
                           {type === "dayoff" &&
-                            `${item.old_day_off} → ${item.new_day_off}`}
-                          {type === "leave" && item.leave_type}
+                            `${item.old_day_off || "-"} → ${item.new_day_off || "-"
+                            }`}
+                          {type === "leave" &&
+                            (item.leave_type || "-")}
                         </>
                       )}
                     </td>
 
-                    <td className="p-3">
+                    <td className="break-words px-2 py-3">
                       {isEditing ? (
                         <textarea
                           value={
@@ -354,32 +534,49 @@ export default function RequestTable({
                           }
                           onChange={(e) =>
                             setField(
-                              type === "leave" ? "leave_reason" : "reason",
+                              type === "leave"
+                                ? "leave_reason"
+                                : "reason",
                               e.target.value
                             )
                           }
-                          className="min-w-[220px] rounded border px-2 py-1"
+                          className="w-full rounded border px-2 py-1"
                           rows={3}
                         />
                       ) : type === "leave" ? (
-                        item.leave_reason
+                        item.leave_reason || "-"
                       ) : (
-                        item.reason
+                        item.reason || "-"
                       )}
                     </td>
 
-                    <td className="p-3">
+                    <td className="whitespace-nowrap px-2 py-3">
                       {isEditing ? (
                         <select
                           value={editForm.status || ""}
-                          onChange={(e) => setField("status", e.target.value)}
+                          onChange={(e) =>
+                            setField("status", e.target.value)
+                          }
                           className="rounded border px-2 py-1"
                         >
-                          <option value="pending_sm">รอ SM อนุมัติ</option>
-                          <option value="approved_sm">SM อนุมัติแล้ว</option>
-                          <option value="approved_gm">GM อนุมัติแล้ว</option>
-                          <option value="approved_hr">HR อนุมัติแล้ว</option>
-                          <option value="rejected">ไม่อนุมัติ</option>
+                          <option value="pending">
+                            รอ SM อนุมัติ
+                          </option>
+                          <option value="pending_sm">
+                            รอ SM อนุมัติ
+                          </option>
+                          <option value="approved_sm">
+                            SM อนุมัติแล้ว
+                          </option>
+                          <option value="approved_gm">
+                            GM อนุมัติแล้ว
+                          </option>
+                          <option value="approved_hr">
+                            HR อนุมัติแล้ว
+                          </option>
+                          <option value="rejected">
+                            ไม่อนุมัติ
+                          </option>
                         </select>
                       ) : (
                         <StatusBadge status={item.status} />
@@ -387,10 +584,11 @@ export default function RequestTable({
                     </td>
 
                     {isHR && (
-                      <td className="p-3">
+                      <td className="px-2 py-3">
                         {isEditing ? (
                           <div className="flex gap-2">
                             <button
+                              type="button"
                               onClick={saveEdit}
                               disabled={loading}
                               className="rounded bg-blue-600 px-3 py-1 text-xs text-white disabled:opacity-50"
@@ -399,6 +597,7 @@ export default function RequestTable({
                             </button>
 
                             <button
+                              type="button"
                               onClick={cancelEdit}
                               disabled={loading}
                               className="rounded bg-slate-500 px-3 py-1 text-xs text-white disabled:opacity-50"
@@ -408,6 +607,7 @@ export default function RequestTable({
                           </div>
                         ) : (
                           <button
+                            type="button"
                             onClick={() => startEdit(item)}
                             className="rounded bg-slate-900 px-3 py-1 text-xs text-white"
                           >
@@ -439,9 +639,12 @@ function DateEdit({
   if (type === "ot") {
     return (
       <input
+        type="date"
         value={form.ot_date || ""}
-        onChange={(e) => setField("ot_date", e.target.value)}
-        className="min-w-[140px] rounded border px-2 py-1"
+        onChange={(e) =>
+          setField("ot_date", e.target.value)
+        }
+        className="w-full rounded border px-2 py-1"
       />
     );
   }
@@ -449,9 +652,12 @@ function DateEdit({
   if (type === "shift") {
     return (
       <input
+        type="date"
         value={form.shift_date || ""}
-        onChange={(e) => setField("shift_date", e.target.value)}
-        className="min-w-[140px] rounded border px-2 py-1"
+        onChange={(e) =>
+          setField("shift_date", e.target.value)
+        }
+        className="w-full rounded border px-2 py-1"
       />
     );
   }
@@ -460,17 +666,21 @@ function DateEdit({
     return (
       <div className="space-y-2">
         <input
+          type="date"
           value={form.old_day_off || ""}
-          onChange={(e) => setField("old_day_off", e.target.value)}
-          placeholder="วันหยุดเดิม"
-          className="min-w-[140px] rounded border px-2 py-1"
+          onChange={(e) =>
+            setField("old_day_off", e.target.value)
+          }
+          className="w-full rounded border px-2 py-1"
         />
 
         <input
+          type="date"
           value={form.new_day_off || ""}
-          onChange={(e) => setField("new_day_off", e.target.value)}
-          placeholder="วันหยุดใหม่"
-          className="min-w-[140px] rounded border px-2 py-1"
+          onChange={(e) =>
+            setField("new_day_off", e.target.value)
+          }
+          className="w-full rounded border px-2 py-1"
         />
       </div>
     );
@@ -479,24 +689,33 @@ function DateEdit({
   return (
     <div className="space-y-2">
       <input
+        type="date"
         value={form.leave_day || ""}
-        onChange={(e) => setField("leave_day", e.target.value)}
-        placeholder="ลาตั้งแต่วันที่"
-        className="min-w-[140px] rounded border px-2 py-1"
+        onChange={(e) =>
+          setField("leave_day", e.target.value)
+        }
+        className="w-full rounded border px-2 py-1"
       />
 
       <input
+        type="date"
         value={form.leave_to_day || ""}
-        onChange={(e) => setField("leave_to_day", e.target.value)}
-        placeholder="ลาถึงวันที่"
-        className="min-w-[140px] rounded border px-2 py-1"
+        onChange={(e) =>
+          setField("leave_to_day", e.target.value)
+        }
+        className="w-full rounded border px-2 py-1"
       />
 
       <input
+        type="number"
+        min="0"
+        step="0.5"
         value={form.leave_total_days || ""}
-        onChange={(e) => setField("leave_total_days", e.target.value)}
+        onChange={(e) =>
+          setField("leave_total_days", e.target.value)
+        }
         placeholder="จำนวนวันลา"
-        className="min-w-[140px] rounded border px-2 py-1"
+        className="w-full rounded border px-2 py-1"
       />
     </div>
   );
@@ -515,17 +734,21 @@ function DetailEdit({
     return (
       <div className="space-y-2">
         <input
+          type="time"
           value={form.start_time || ""}
-          onChange={(e) => setField("start_time", e.target.value)}
-          placeholder="เวลาเริ่ม"
-          className="min-w-[140px] rounded border px-2 py-1"
+          onChange={(e) =>
+            setField("start_time", e.target.value)
+          }
+          className="w-full rounded border px-2 py-1"
         />
 
         <input
+          type="time"
           value={form.end_time || ""}
-          onChange={(e) => setField("end_time", e.target.value)}
-          placeholder="เวลาสิ้นสุด"
-          className="min-w-[140px] rounded border px-2 py-1"
+          onChange={(e) =>
+            setField("end_time", e.target.value)
+          }
+          className="w-full rounded border px-2 py-1"
         />
       </div>
     );
@@ -536,45 +759,59 @@ function DetailEdit({
       <div className="space-y-2">
         <input
           value={form.old_shift_code || ""}
-          onChange={(e) => setField("old_shift_code", e.target.value)}
+          onChange={(e) =>
+            setField("old_shift_code", e.target.value)
+          }
           placeholder="กะเดิม"
-          className="min-w-[140px] rounded border px-2 py-1"
+          className="w-full rounded border px-2 py-1"
         />
 
         <input
           value={form.old_shift_time || ""}
-          onChange={(e) => setField("old_shift_time", e.target.value)}
+          onChange={(e) =>
+            setField("old_shift_time", e.target.value)
+          }
           placeholder="เวลาเดิม"
-          className="min-w-[140px] rounded border px-2 py-1"
+          className="w-full rounded border px-2 py-1"
         />
 
         <input
           value={form.new_shift_code || ""}
-          onChange={(e) => setField("new_shift_code", e.target.value)}
+          onChange={(e) =>
+            setField("new_shift_code", e.target.value)
+          }
           placeholder="กะใหม่"
-          className="min-w-[140px] rounded border px-2 py-1"
+          className="w-full rounded border px-2 py-1"
         />
 
         <input
           value={form.new_shift_time || ""}
-          onChange={(e) => setField("new_shift_time", e.target.value)}
+          onChange={(e) =>
+            setField("new_shift_time", e.target.value)
+          }
           placeholder="เวลาใหม่"
-          className="min-w-[140px] rounded border px-2 py-1"
+          className="w-full rounded border px-2 py-1"
         />
       </div>
     );
   }
 
   if (type === "dayoff") {
-    return <span className="text-slate-500">แก้วันที่ในช่องวันที่</span>;
+    return (
+      <span className="text-slate-500">
+        แก้วันที่ในช่องวันที่ขอ
+      </span>
+    );
   }
 
   return (
     <input
       value={form.leave_type || ""}
-      onChange={(e) => setField("leave_type", e.target.value)}
+      onChange={(e) =>
+        setField("leave_type", e.target.value)
+      }
       placeholder="ประเภทการลา"
-      className="min-w-[140px] rounded border px-2 py-1"
+      className="w-full rounded border px-2 py-1"
     />
   );
 }
@@ -584,23 +821,24 @@ function StatusBadge({ status }: { status: string }) {
     status === "pending" || status === "pending_sm"
       ? "รอ SM อนุมัติ"
       : status === "approved_sm"
-      ? "SM อนุมัติแล้ว"
-      : status === "approved_gm"
-      ? "GM อนุมัติแล้ว"
-      : status === "approved_hr"
-      ? "HR อนุมัติแล้ว"
-      : status === "rejected"
-      ? "ไม่อนุมัติ"
-      : status;
+        ? "SM อนุมัติแล้ว"
+        : status === "approved_gm"
+          ? "GM อนุมัติแล้ว"
+          : status === "approved_hr"
+            ? "HR อนุมัติแล้ว"
+            : status === "rejected"
+              ? "ไม่อนุมัติ"
+              : status || "-";
 
   const className =
-    status === "approved_gm" || status === "approved_hr"
+    status === "approved_gm" ||
+      status === "approved_hr"
       ? "rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700"
       : status === "approved_sm"
-      ? "rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
-      : status === "rejected"
-      ? "rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700"
-      : "rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-700";
+        ? "rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700"
+        : status === "rejected"
+          ? "rounded-full bg-red-100 px-3 py-1 text-xs font-medium text-red-700"
+          : "rounded-full bg-yellow-100 px-3 py-1 text-xs font-medium text-yellow-700";
 
   return <span className={className}>{label}</span>;
 }
