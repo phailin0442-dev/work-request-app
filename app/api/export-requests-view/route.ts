@@ -26,6 +26,14 @@ const supabaseAdmin = createClient(
   }
 );
 
+/*
+ * API นี้เป็น "Export สำหรับดูเท่านั้น"
+ * ต่างจาก /api/export-requests ตรงที่:
+ * - ไม่สร้าง export_batches / export_batch_items
+ * - ไม่ล็อกรายการ ไม่เช็กว่าถูก HR คนอื่นรับไปแล้วหรือไม่
+ * - HR สามารถกดส่งออกซ้ำกี่ครั้งก็ได้ ไม่มีผลต่อสถานะคำขอ
+ */
+
 type RequestType =
   | "ot"
   | "leave"
@@ -57,7 +65,7 @@ type RequestConfig = {
   label: string;
 };
 
-type AvailableRequest = {
+type MatchedRequest = {
   requestType: RequestType;
   requestTypeLabel: string;
   requestId: string;
@@ -159,11 +167,6 @@ function formatDate(value: unknown) {
     return "-";
   }
 
-  /*
-   * คอลัมน์วันที่ในตารางคำขอเป็น text
-   * ถ้าอยู่ในรูป YYYY-MM-DD ให้แปลงเอง
-   * เพื่อป้องกันวันที่เลื่อนจาก Timezone
-   */
   const text = String(value).trim();
 
   const dateOnlyMatch = text.match(
@@ -192,7 +195,7 @@ function formatDate(value: unknown) {
   });
 }
 
-function createBatchNo() {
+function createExportRef() {
   const now = new Date();
 
   const datePart = now
@@ -212,7 +215,7 @@ function createBatchNo() {
     1000 + Math.random() * 9000
   );
 
-  return `EXP-${datePart}-${timePart}-${randomPart}`;
+  return `VIEW-${datePart}-${timePart}-${randomPart}`;
 }
 
 function getRequestDate(
@@ -446,33 +449,7 @@ async function getCurrentHr(): Promise<CurrentHr | null> {
   return data as CurrentHr;
 }
 
-async function deleteCreatedBatch(
-  batchId: string | null
-) {
-  if (!batchId) {
-    return;
-  }
-
-  /*
-   * export_batch_items ถูกลบตาม
-   * เพราะ Foreign Key ใช้ ON DELETE CASCADE
-   */
-  const { error } = await supabaseAdmin
-    .from("export_batches")
-    .delete()
-    .eq("id", batchId);
-
-  if (error) {
-    console.error(
-      "ลบชุดงานที่สร้างไม่สำเร็จ:",
-      error
-    );
-  }
-}
-
 export async function POST(req: Request) {
-  let createdBatchId: string | null = null;
-
   try {
     /*
      * 1. ตรวจสอบ HR ที่กำลังล็อกอิน
@@ -583,9 +560,6 @@ export async function POST(req: Request) {
 
     /*
      * 3. โหลดข้อมูลพนักงาน
-     *
-     * ไม่กรอง active เพื่อให้คำขอเก่าของพนักงาน
-     * ที่ถูกปิดสถานะแล้วยัง Export ได้
      */
     const {
       data: employees,
@@ -609,9 +583,6 @@ export async function POST(req: Request) {
       );
     }
 
-    /*
-     * สร้าง Map จาก employee_code
-     */
     const employeeMap = new Map<
       string,
       Employee
@@ -643,14 +614,13 @@ export async function POST(req: Request) {
         ]
         : [selectedType as RequestType];
 
-    const availableRequests: AvailableRequest[] =
+    const matchedRequests: MatchedRequest[] =
       [];
-
-    let skippedItems = 0;
-    let totalMatchedBeforeLock = 0;
 
     /*
      * 4. โหลดข้อมูลจากตารางคำขอ
+     *    (ไม่มีการเช็กหรือบันทึกการล็อกใด ๆ
+     *    เพราะเป็นโหมด "ดูเท่านั้น" ส่งออกซ้ำได้ไม่จำกัด)
      */
     for (const requestType of typesToLoad) {
       const config =
@@ -754,58 +724,6 @@ export async function POST(req: Request) {
         return true;
       });
 
-      totalMatchedBeforeLock +=
-        filteredRequests.length;
-
-      if (filteredRequests.length === 0) {
-        continue;
-      }
-
-      /*
-       * Primary Key จริงของตารางคำขอคือ request_id
-       * ไม่ใช่ id
-       */
-      const requestIds = filteredRequests
-        .map((item) => item.request_id)
-        .filter(
-          (
-            requestId
-          ): requestId is string =>
-            Boolean(requestId)
-        );
-
-      if (requestIds.length === 0) {
-        continue;
-      }
-
-      /*
-       * 6. เช็กว่ารายการใดถูก HR คนอื่นรับไปแล้ว
-       */
-      const {
-        data: existingBatchItems,
-        error: existingBatchError,
-      } = await supabaseAdmin
-        .from("export_batch_items")
-        .select("request_id")
-        .eq("request_type", requestType)
-        .in("request_id", requestIds);
-
-      if (existingBatchError) {
-        throw new Error(
-          `ตรวจสอบรายการที่ถูกล็อกไม่สำเร็จ: ${existingBatchError.message}`
-        );
-      }
-
-      const claimedRequestIds = new Set(
-        (existingBatchItems || []).map(
-          (batchItem) =>
-            String(batchItem.request_id)
-        )
-      );
-
-      /*
-       * 7. เลือกเฉพาะรายการที่ยังไม่มี HR รับ
-       */
       for (const item of filteredRequests) {
         if (!item.request_id) {
           continue;
@@ -815,19 +733,12 @@ export async function POST(req: Request) {
           item.request_id
         );
 
-        if (
-          claimedRequestIds.has(requestId)
-        ) {
-          skippedItems += 1;
-          continue;
-        }
-
         const employeeCode =
           normalizeEmployeeCode(
             item.employee_code
           );
 
-        availableRequests.push({
+        matchedRequests.push({
           requestType,
           requestTypeLabel:
             config.label,
@@ -843,25 +754,9 @@ export async function POST(req: Request) {
     }
 
     /*
-     * 8. ไม่มีข้อมูลที่รับงานได้
+     * 6. ไม่มีข้อมูลตามเงื่อนไข
      */
-    if (availableRequests.length === 0) {
-      if (
-        totalMatchedBeforeLock > 0 &&
-        skippedItems > 0
-      ) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message:
-              "รายการตามเงื่อนไขนี้ถูก HR รับไปดำเนินการแล้วทั้งหมด",
-          },
-          {
-            status: 409,
-          }
-        );
-      }
-
+    if (matchedRequests.length === 0) {
       return NextResponse.json(
         {
           ok: false,
@@ -874,118 +769,13 @@ export async function POST(req: Request) {
       );
     }
 
-    /*
-     * 9. สร้างชุดงาน Export
-     */
-    const batchNo = createBatchNo();
-
-    const {
-      data: batch,
-      error: batchError,
-    } = await supabaseAdmin
-      .from("export_batches")
-      .insert({
-        batch_no: batchNo,
-
-        request_type: selectedType,
-
-        department_name:
-          selectedDepartment === "all" ||
-            selectedDepartment === "ทั้งหมด"
-            ? null
-            : selectedDepartment,
-
-        start_date: startDate || null,
-        end_date: endDate || null,
-
-        total_items:
-          availableRequests.length,
-
-        status: "in_progress",
-
-        claimed_by: currentHr.id,
-
-        claimed_at:
-          new Date().toISOString(),
-      })
-      .select(`
-        id,
-        batch_no
-      `)
-      .single();
-
-    if (batchError || !batch) {
-      throw new Error(
-        `สร้างชุดงานไม่สำเร็จ: ${batchError?.message ||
-        "ไม่พบข้อมูลชุดงาน"
-        }`
-      );
-    }
-
-    createdBatchId = batch.id;
+    const exportRef = createExportRef();
 
     /*
-     * 10. ล็อกรายการคำขอ
-     */
-    const batchItems =
-      availableRequests.map(
-        (requestItem) => ({
-          batch_id: batch.id,
-
-          request_type:
-            requestItem.requestType,
-
-          request_id:
-            requestItem.requestId,
-
-          employee_code:
-            requestItem.employeeCode ||
-            null,
-
-          process_status:
-            "in_progress",
-        })
-      );
-
-    const { error: batchItemsError } =
-      await supabaseAdmin
-        .from("export_batch_items")
-        .insert(batchItems);
-
-    if (batchItemsError) {
-      await deleteCreatedBatch(batch.id);
-
-      createdBatchId = null;
-
-      /*
-       * Unique constraint จะกันกรณี
-       * HR สองคนกดรับรายการเดียวกันพร้อมกัน
-       */
-      if (
-        batchItemsError.code === "23505"
-      ) {
-        return NextResponse.json(
-          {
-            ok: false,
-            message:
-              "มี HR คนอื่นรับบางรายการไปพร้อมกัน กรุณากดรับงานใหม่อีกครั้ง",
-          },
-          {
-            status: 409,
-          }
-        );
-      }
-
-      throw new Error(
-        `ล็อกรายการไม่สำเร็จ: ${batchItemsError.message}`
-      );
-    }
-
-    /*
-     * 11. สร้างข้อมูล Excel
+     * 7. สร้างข้อมูล Excel
      */
     const excelRows =
-      availableRequests.map(
+      matchedRequests.map(
         ({
           requestType,
           requestTypeLabel,
@@ -1009,7 +799,7 @@ export async function POST(req: Request) {
             "-";
 
           return {
-            เลขชุดงาน: batch.batch_no,
+            เลขอ้างอิง: exportRef,
 
             ประเภทคำขอ:
               requestTypeLabel,
@@ -1091,18 +881,15 @@ export async function POST(req: Request) {
                 getReason(item)
               ),
 
-            ผู้รับชุดงาน:
+            ผู้ Export:
               currentHr.full_name ||
               currentHr.employee_code,
-
-            สถานะดำเนินการ:
-              "กำลังดำเนินการ",
           };
         }
       );
 
     /*
-     * 12. สร้าง Excel .xlsx
+     * 8. สร้าง Excel .xlsx
      */
     const worksheet =
       XLSX.utils.json_to_sheet(
@@ -1110,7 +897,7 @@ export async function POST(req: Request) {
       );
 
     worksheet["!cols"] = [
-      { wch: 28 }, // เลขชุดงาน
+      { wch: 28 }, // เลขอ้างอิง
       { wch: 18 }, // ประเภทคำขอ
       { wch: 24 }, // ประเภท OT
       { wch: 22 }, // วันที่สร้าง
@@ -1128,8 +915,7 @@ export async function POST(req: Request) {
       { wch: 20 }, // ประเภทการลา
       { wch: 12 }, // จำนวนวัน
       { wch: 40 }, // เหตุผล
-      { wch: 28 }, // ผู้รับชุดงาน
-      { wch: 20 }, // สถานะดำเนินการ
+      { wch: 28 }, // ผู้ Export
     ];
 
     if (worksheet["!ref"]) {
@@ -1144,7 +930,7 @@ export async function POST(req: Request) {
     XLSX.utils.book_append_sheet(
       workbook,
       worksheet,
-      "รายการดำเนินการ"
+      "รายการ (ดูเท่านั้น)"
     );
 
     const excelBuffer = XLSX.write(
@@ -1157,13 +943,12 @@ export async function POST(req: Request) {
 
     const encodedFileName =
       encodeURIComponent(
-        `${batch.batch_no}.xlsx`
+        `${exportRef}.xlsx`
       );
 
-    createdBatchId = null;
-
     /*
-     * 13. ส่งไฟล์กลับไปให้หน้าเว็บดาวน์โหลด
+     * 9. ส่งไฟล์กลับไปให้หน้าเว็บดาวน์โหลด
+     *    ไม่มีการล็อกหรือบันทึกชุดงานใด ๆ
      */
     return new NextResponse(
       new Uint8Array(excelBuffer),
@@ -1177,17 +962,10 @@ export async function POST(req: Request) {
           "Content-Disposition":
             `attachment; filename*=UTF-8''${encodedFileName}`,
 
-          "X-Batch-Id": batch.id,
-
-          "X-Batch-No":
-            batch.batch_no,
+          "X-Export-Ref": exportRef,
 
           "X-Exported-Items": String(
-            availableRequests.length
-          ),
-
-          "X-Skipped-Items": String(
-            skippedItems
+            matchedRequests.length
           ),
 
           "Cache-Control": "no-store",
@@ -1196,19 +974,9 @@ export async function POST(req: Request) {
     );
   } catch (error: unknown) {
     console.error(
-      "Export requests error:",
+      "Export requests (view-only) error:",
       error
     );
-
-    /*
-     * ถ้าสร้างชุดงานแล้วเกิด Error ระหว่างทาง
-     * ให้ลบชุดงานออก เพื่อไม่ให้รายการค้าง
-     */
-    if (createdBatchId) {
-      await deleteCreatedBatch(
-        createdBatchId
-      );
-    }
 
     return NextResponse.json(
       {

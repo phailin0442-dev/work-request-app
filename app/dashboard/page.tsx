@@ -110,10 +110,11 @@ export default async function DashboardPage() {
 
         {isHR && (
           <DashboardSection title="เมนู HR" subtitle="จัดการข้อมูลระบบ">
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <MenuCard href="/dashboard/manage-requests" title="จัดการคำขอ" desc="อนุมัติ / ตรวจสอบรายการ" icon="✅" highlight />
               <MenuCard href="/dashboard/employees" title="จัดการพนักงาน" desc="เพิ่ม / แก้ไข / ค้นหา" icon="👥" />
-              <MenuCard href="/dashboard/export" title="Export Report" desc="ดาวน์โหลดรายงาน" icon="📤" />
+              <MenuCard href="/dashboard/export" title="Export Report" desc="สำหรับคีย์เท่านั้น (ล็อกรายการ)" icon="📤" />
+              <MenuCard href="/dashboard/export-view" title="Export Report (ดูเท่านั้น)" desc="ส่งออกซ้ำได้ไม่จำกัดรอบ" icon="👁️" />
             </div>
           </DashboardSection>
         )}

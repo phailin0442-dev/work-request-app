@@ -17,27 +17,27 @@ const STATUS_OPTIONS = [
   { value: "all", label: "ทุกสถานะ" },
   {
     value: "pending_sm",
-    label: "รอ SM อนุมัติ (ยังไม่พร้อมคีย์)",
+    label: "รอ SM อนุมัติ",
   },
   {
     value: "approved_sm",
-    label: "SM อนุมัติแล้ว (พร้อมคีย์)",
+    label: "SM อนุมัติแล้ว",
   },
   {
     value: "approved_gm",
-    label: "GM อนุมัติแล้ว (เฉพาะ OT, พร้อมคีย์)",
+    label: "GM อนุมัติแล้ว (เฉพาะ OT)",
   },
   {
     value: "approved_hr",
-    label: "HR อนุมัติแล้ว (คีย์เสร็จแล้ว)",
+    label: "HR อนุมัติแล้ว",
   },
   { value: "rejected", label: "ไม่อนุมัติ" },
 ];
 
-export default function ExportPage() {
+export default function ExportViewPage() {
   const [type, setType] = useState("all");
   const [department, setDepartment] = useState("all");
-  const [status, setStatus] = useState("approved_sm");
+  const [status, setStatus] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
@@ -63,7 +63,7 @@ export default function ExportPage() {
       setLoading(true);
 
       const response = await fetch(
-        "/api/export-requests",
+        "/api/export-requests-view",
         {
           method: "POST",
           credentials: "include",
@@ -85,7 +85,7 @@ export default function ExportPage() {
 
       if (!response.ok) {
         let errorMessage =
-          "ไม่สามารถรับชุดงานและดาวน์โหลดไฟล์ได้";
+          "ไม่สามารถส่งออกและดาวน์โหลดไฟล์ได้";
 
         if (
           contentType.includes("application/json")
@@ -141,31 +141,15 @@ export default function ExportPage() {
 
       URL.revokeObjectURL(downloadUrl);
 
-      const batchNo =
-        response.headers.get("X-Batch-No");
-
       const exportedItems =
         response.headers.get(
           "X-Exported-Items"
         );
 
-      const skippedItems =
-        response.headers.get(
-          "X-Skipped-Items"
-        );
-
-      let successMessage =
-        `รับชุดงาน ${batchNo || ""
-        } เรียบร้อย จำนวน ${exportedItems || "0"
-        } รายการ`;
-
-      if (Number(skippedItems || 0) > 0) {
-        successMessage +=
-          ` และข้าม ${skippedItems} รายการ` +
-          " ที่ HR คนอื่นรับไปแล้ว";
-      }
-
-      setMessage(successMessage);
+      setMessage(
+        `ดาวน์โหลดไฟล์สำเร็จ จำนวน ${exportedItems || "0"
+        } รายการ (สามารถ Export ซ้ำได้อีกเมื่อไรก็ได้)`
+      );
       setMessageType("success");
     } catch (error) {
       console.error("Export error:", error);
@@ -184,7 +168,7 @@ export default function ExportPage() {
 
     setType("all");
     setDepartment("all");
-    setStatus("approved_sm");
+    setStatus("all");
     setStartDate("");
     setEndDate("");
     setMessage("");
@@ -198,17 +182,17 @@ export default function ExportPage() {
           <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-black tracking-[0.2em] text-red-100">
-                EXPORT CENTER
+                EXPORT CENTER · VIEW ONLY
               </p>
 
               <h1 className="mt-3 text-3xl font-black sm:text-4xl">
-                Export Report
+                Export Report (ดูเท่านั้น)
               </h1>
 
               <p className="mt-2 text-red-100">
                 เลือกประเภทรายการ แผนก
                 และช่วงวันที่
-                เพื่อรับชุดงานและดาวน์โหลด Excel
+                เพื่อดาวน์โหลด Excel สำหรับดูข้อมูล
               </p>
             </div>
 
@@ -244,13 +228,13 @@ export default function ExportPage() {
         <section className="overflow-hidden rounded-3xl border border-red-100 bg-white/95 shadow-xl">
           <div className="border-b border-red-100 bg-red-50 px-6 py-5">
             <h2 className="text-2xl font-black text-slate-900">
-              ตั้งค่าการ Export
+              ตั้งค่าการ Export (ดูเท่านั้น)
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              เมื่อกดรับงาน
-              ระบบจะล็อกรายการให้ HR
-              ที่กำลังใช้งานอยู่
+              โหมดนี้ไม่ล็อกรายการ ไม่มีผลต่อสถานะคำขอ
+              และสามารถกดส่งออกซ้ำได้ไม่จำกัดจำนวนรอบ
+              เหมาะสำหรับดูข้อมูลหรือตรวจสอบเท่านั้น
             </p>
           </div>
 
@@ -414,30 +398,14 @@ export default function ExportPage() {
               </p>
             </div>
 
-            <div className="rounded-3xl border border-indigo-200 bg-indigo-50 p-5">
-              <p className="text-sm font-bold text-indigo-800">
-                แนะนำให้เลือกสถานะ "SM อนุมัติแล้ว (พร้อมคีย์)"
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+              <p className="text-sm font-bold text-emerald-800">
+                Export ได้ไม่จำกัดจำนวนรอบ
               </p>
 
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                เพื่อป้องกันการดึงรายการที่ยัง "รอ SM อนุมัติ"
-                มาล็อกไว้ก่อนเวลาอันควร เพราะถ้าล็อกรายการตอนที่
-                ยังไม่ได้รับอนุมัติจาก SM แล้ว SM เพิ่งมาอนุมัติทีหลัง
-                รายการนั้นจะยังค้างอยู่ในชุดงานเดิม ดึงมาคีย์ใหม่ไม่ได้
-                จนกว่าจะยกเลิกชุดงานเดิม
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
-              <p className="text-sm font-bold text-amber-800">
-                ระบบป้องกัน HR ทำงานซ้ำกัน
-              </p>
-
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                เมื่อ HR กดรับงาน
-                ระบบจะบันทึกชุดงานและล็อกรายการ
-                รายการที่ HR คนอื่นรับไปแล้ว
-                จะไม่ถูกนำมาสร้างไฟล์ซ้ำ
+                โหมดนี้ไม่ล็อกรายการและไม่กันข้อมูลซ้ำ
+                กดส่งออกกี่ครั้งก็ได้ ไม่กระทบ HR คนอื่นที่รับงานคีย์อยู่
               </p>
             </div>
 
@@ -459,11 +427,11 @@ export default function ExportPage() {
                 type="button"
                 onClick={handleExport}
                 disabled={loading}
-                className="rounded-2xl bg-gradient-to-r from-red-600 to-rose-600 px-6 py-3 font-bold text-white shadow-lg shadow-red-200 transition hover:scale-[1.02] hover:from-red-700 hover:to-rose-700 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
+                className="rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-3 font-bold text-white shadow-lg shadow-emerald-200 transition hover:scale-[1.02] hover:from-emerald-700 hover:to-teal-700 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
               >
                 {loading
-                  ? "กำลังรับชุดงาน..."
-                  : "📤 รับงานและดาวน์โหลด Excel"}
+                  ? "กำลังส่งออก..."
+                  : "📤 ส่งออกและดาวน์โหลด Excel"}
               </button>
 
               <button
