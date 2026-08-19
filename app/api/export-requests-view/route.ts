@@ -804,7 +804,7 @@ export async function POST(req: Request) {
             ประเภทคำขอ:
               requestTypeLabel,
 
-            ประเภท OT:
+            ประเภทOT:
               requestType === "ot"
                 ? displayValue(item.ot_type)
                 : "-",
@@ -881,7 +881,7 @@ export async function POST(req: Request) {
                 getReason(item)
               ),
 
-            ผู้ Export:
+            ผู้Export:
               currentHr.full_name ||
               currentHr.employee_code,
           };

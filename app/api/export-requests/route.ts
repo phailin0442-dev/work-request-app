@@ -1014,7 +1014,7 @@ export async function POST(req: Request) {
             ประเภทคำขอ:
               requestTypeLabel,
 
-            ประเภท OT:
+            ประเภทOT:
               requestType === "ot"
                 ? displayValue(item.ot_type)
                 : "-",
