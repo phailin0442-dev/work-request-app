@@ -19,6 +19,21 @@ type RequestTableProps = {
   departments: DepartmentOption[];
 };
 
+const BATCH_SIZE = 100;
+
+/*
+ * ตาราง shift/dayoff บันทึกสถานะเริ่มต้นเป็น "pending"
+ * ส่วน ot/leave บันทึกเป็น "pending_sm"
+ * ให้ normalize ให้เป็นค่าเดียวกันก่อนเทียบกับตัวกรอง
+ */
+function normalizeStatusValue(value: unknown): string {
+  const status = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  return status === "pending" ? "pending_sm" : status;
+}
+
 export default function RequestTable({
   title,
   table,
@@ -33,7 +48,9 @@ export default function RequestTable({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<any>({});
   const [loading, setLoading] = useState(false);
+  const [loadingLabel, setLoadingLabel] = useState("");
 
+  const [searchText, setSearchText] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("all");
@@ -94,6 +111,10 @@ export default function RequestTable({
   }, [departments]);
 
   const filteredItems = useMemo(() => {
+    const normalizedSearch = searchText
+      .trim()
+      .toLowerCase();
+
     return items.filter((item) => {
       const requestDate = getRequestDate(item);
 
@@ -111,27 +132,36 @@ export default function RequestTable({
       }
 
       if (isHR && statusFilter !== "all") {
-        if (statusFilter === "pending") {
-          return item.status === "pending" || item.status === "pending_sm";
-        }
+        const currentStatus = normalizeStatusValue(
+          item.status
+        );
 
-        if (statusFilter === "approved") {
-          return (
-            item.status === "approved_sm" ||
-            item.status === "approved_gm" ||
-            item.status === "approved_hr"
-          );
+        if (currentStatus !== statusFilter) {
+          return false;
         }
+      }
 
-        if (statusFilter === "rejected") {
-          return item.status === "rejected";
-        }
+      if (normalizedSearch) {
+        const employeeName = String(
+          item.employee_name || ""
+        ).toLowerCase();
+
+        const employeeCode = String(
+          item.employee_code || ""
+        ).toLowerCase();
+
+        const matchesSearch =
+          employeeName.includes(normalizedSearch) ||
+          employeeCode.includes(normalizedSearch);
+
+        if (!matchesSearch) return false;
       }
 
       return true;
     });
   }, [
     items,
+    searchText,
     dateFrom,
     dateTo,
     departmentFilter,
@@ -162,6 +192,7 @@ export default function RequestTable({
   }
 
   function clearFilter() {
+    setSearchText("");
     setDateFrom("");
     setDateTo("");
     setDepartmentFilter("all");
@@ -186,33 +217,101 @@ export default function RequestTable({
     }));
   }
 
+  /*
+   * แบ่งอัปเดตทีละ BATCH_SIZE (100) รายการอัตโนมัติ
+   * เพื่อไม่ให้ชนกับ limit ของ API ฝั่ง backend
+   * ผู้ใช้เลือกได้ทั้งหมดโดยไม่ต้องกังวลเรื่องจำนวน
+   */
   async function updateSelected(action: "approve" | "reject") {
     if (selectedIds.length === 0) {
       alert("กรุณาเลือกรายการก่อน");
       return;
     }
 
+    const actionLabel =
+      action === "approve" ? "อนุมัติ" : "ไม่อนุมัติ";
+
+    if (selectedIds.length > BATCH_SIZE) {
+      const confirmed = window.confirm(
+        `คุณเลือกไว้ ${selectedIds.length} รายการ ` +
+        `ระบบจะแบ่งดำเนินการทีละ ${BATCH_SIZE} รายการอัตโนมัติ ` +
+        `(ทั้งหมด ${Math.ceil(
+          selectedIds.length / BATCH_SIZE
+        )} ชุด) ยืนยันที่จะ${actionLabel}หรือไม่?`
+      );
+
+      if (!confirmed) return;
+    }
+
+    const chunks: string[][] = [];
+
+    for (
+      let i = 0;
+      i < selectedIds.length;
+      i += BATCH_SIZE
+    ) {
+      chunks.push(selectedIds.slice(i, i + BATCH_SIZE));
+    }
+
     try {
       setLoading(true);
 
-      const res = await fetch("/api/update-request-status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          table,
-          action,
-          request_ids: selectedIds,
-        }),
-      });
+      let totalUpdated = 0;
+      let totalSkipped = 0;
+      let totalFailed = 0;
+      const chunkErrors: string[] = [];
 
-      const data = await res.json();
+      for (let index = 0; index < chunks.length; index++) {
+        setLoadingLabel(
+          chunks.length > 1
+            ? `กำลังดำเนินการ (${index + 1}/${chunks.length
+            } ชุด)...`
+            : "กำลังดำเนินการ..."
+        );
 
-      if (!res.ok || !data.ok) {
-        alert(data.message || "อัปเดตไม่สำเร็จ");
-        return;
+        const res = await fetch(
+          "/api/update-request-status",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              table,
+              action,
+              request_ids: chunks[index],
+            }),
+          }
+        );
+
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          chunkErrors.push(
+            data.message ||
+            `ชุดที่ ${index + 1} อัปเดตไม่สำเร็จ`
+          );
+          continue;
+        }
+
+        totalUpdated += Number(data.updated || 0);
+        totalSkipped += Number(data.skipped || 0);
+        totalFailed += Number(data.failed || 0);
       }
+
+      let summary = `${actionLabel}สำเร็จ ${totalUpdated} รายการ`;
+
+      if (totalSkipped > 0) {
+        summary += ` (ข้าม ${totalSkipped} รายการที่สิทธิ์/สถานะไม่ตรง)`;
+      }
+
+      if (chunkErrors.length > 0) {
+        summary += `\n\nมีบางชุดผิดพลาด:\n${chunkErrors.join(
+          "\n"
+        )}`;
+      }
+
+      alert(summary);
 
       setSelectedIds([]);
       router.refresh();
@@ -221,6 +320,7 @@ export default function RequestTable({
       alert("ไม่สามารถเชื่อมต่อระบบได้");
     } finally {
       setLoading(false);
+      setLoadingLabel("");
     }
   }
 
@@ -271,6 +371,16 @@ export default function RequestTable({
       selectedIds.includes(id)
     );
 
+  /*
+   * จำนวนคอลัมน์ตัวกรอง: ค้นหา + วันที่เริ่ม + วันที่สิ้นสุด
+   * + แผนก (ถ้ามีสิทธิ์) + สถานะ (เฉพาะ HR) + ปุ่มล้าง
+   */
+  const filterGridClassName = isHR
+    ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr_1fr_0.9fr]"
+    : canFilterDepartment
+      ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr_0.9fr]"
+      : "grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_0.9fr]";
+
   return (
     <section className="overflow-hidden rounded-2xl bg-white shadow">
       <div className="flex flex-wrap items-center justify-between gap-3 bg-red-700 px-6 py-4 text-white">
@@ -278,6 +388,9 @@ export default function RequestTable({
           <h2 className="text-xl font-semibold">{title}</h2>
           <p className="mt-1 text-sm text-red-100">
             แสดง {filteredItems.length} รายการ จากทั้งหมด {items.length} รายการ
+            {selectedIds.length > 0
+              ? ` · เลือกไว้ ${selectedIds.length} รายการ`
+              : ""}
           </p>
         </div>
 
@@ -289,7 +402,9 @@ export default function RequestTable({
               disabled={loading}
               className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? "กำลังดำเนินการ..." : "อนุมัติที่เลือก"}
+              {loading && loadingLabel
+                ? loadingLabel
+                : "อนุมัติที่เลือก"}
             </button>
 
             <button
@@ -298,22 +413,32 @@ export default function RequestTable({
               disabled={loading}
               className="rounded-lg bg-red-950 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {loading ? "กำลังดำเนินการ..." : "ไม่อนุมัติที่เลือก"}
+              {loading && loadingLabel
+                ? loadingLabel
+                : "ไม่อนุมัติที่เลือก"}
             </button>
           </div>
         )}
       </div>
 
       <div className="m-6 rounded-xl border bg-slate-50 p-4">
-        <div
-          className={
-            isHR
-              ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_0.9fr]"
-              : canFilterDepartment
-                ? "grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_0.9fr]"
-                : "grid gap-3 md:grid-cols-3"
-          }
-        >
+        <div className={filterGridClassName}>
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              ค้นหาชื่อ / รหัสพนักงาน
+            </label>
+            <input
+              type="text"
+              value={searchText}
+              placeholder="พิมพ์ชื่อหรือรหัสพนักงาน..."
+              onChange={(e) => {
+                setSearchText(e.target.value);
+                setSelectedIds([]);
+              }}
+              className="w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+
           <div>
             <label className="mb-1 block text-sm font-medium">
               วันที่เริ่มต้น
@@ -385,9 +510,21 @@ export default function RequestTable({
                 className="w-full rounded-lg border px-3 py-2"
               >
                 <option value="all">ทั้งหมด</option>
-                <option value="pending">รออนุมัติ</option>
-                <option value="approved">อนุมัติแล้ว</option>
-                <option value="rejected">ไม่อนุมัติ</option>
+                <option value="pending_sm">
+                  รอ SM อนุมัติ
+                </option>
+                <option value="approved_sm">
+                  SM อนุมัติแล้ว
+                </option>
+                <option value="approved_gm">
+                  GM อนุมัติแล้ว (เฉพาะ OT)
+                </option>
+                <option value="approved_hr">
+                  HR อนุมัติแล้ว
+                </option>
+                <option value="rejected">
+                  ไม่อนุมัติ
+                </option>
               </select>
             </div>
           )}

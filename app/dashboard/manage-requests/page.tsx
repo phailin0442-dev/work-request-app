@@ -54,6 +54,31 @@ type DepartmentRecord = {
   name: string;
 };
 
+/*
+ * ตาราง shift/dayoff บันทึกสถานะเริ่มต้นเป็น "pending"
+ * ส่วน ot/leave บันทึกเป็น "pending_sm"
+ * ให้ normalize ให้เป็นค่าเดียวกันก่อนเช็ก
+ */
+function normalizeStatusValue(value: unknown): string {
+  const status = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  return status === "pending" ? "pending_sm" : status;
+}
+
+/*
+ * นับเฉพาะรายการที่ "ยังไม่จบกระบวนการ"
+ * คือยังไม่ถูก HR อนุมัติ (approved_hr) และไม่ถูกไม่อนุมัติ (rejected)
+ * เพื่อใช้แสดงยอดในแท็บ ให้ HR เห็นว่าเหลืองานที่ต้องทำอีกกี่รายการ
+ */
+function countPending(items: any[]) {
+  return items.filter((item) => {
+    const status = normalizeStatusValue(item.status);
+    return status !== "approved_hr" && status !== "rejected";
+  }).length;
+}
+
 export default async function ManageRequestsPage({
   searchParams,
 }: {
@@ -323,6 +348,16 @@ export default async function ManageRequestsPage({
     getRequests("leave_form_requests", otherStatus),
   ]);
 
+  /*
+   * ยอดที่แสดงในแท็บ = จำนวนรายการที่ยังไม่จบกระบวนการ
+   * (ไม่นับรายการที่ HR อนุมัติแล้ว หรือไม่อนุมัติแล้ว)
+   * ไม่ใช่จำนวนรายการทั้งหมดที่โหลดมา
+   */
+  const otPendingCount = countPending(otRequests);
+  const shiftPendingCount = countPending(shiftRequests);
+  const dayOffPendingCount = countPending(dayOffRequests);
+  const leavePendingCount = countPending(leaveRequests);
+
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto w-full max-w-[1800px] space-y-6">
@@ -393,28 +428,28 @@ export default async function ManageRequestsPage({
                   href="/dashboard/manage-requests?tab=ot"
                   active={activeTab === "ot"}
                 >
-                  OT ({otRequests.length})
+                  OT ({otPendingCount})
                 </TabButton>
 
                 <TabButton
                   href="/dashboard/manage-requests?tab=shift"
                   active={activeTab === "shift"}
                 >
-                  เปลี่ยนกะ ({shiftRequests.length})
+                  เปลี่ยนกะ ({shiftPendingCount})
                 </TabButton>
 
                 <TabButton
                   href="/dashboard/manage-requests?tab=dayoff"
                   active={activeTab === "dayoff"}
                 >
-                  เปลี่ยนวันหยุด ({dayOffRequests.length})
+                  เปลี่ยนวันหยุด ({dayOffPendingCount})
                 </TabButton>
 
                 <TabButton
                   href="/dashboard/manage-requests?tab=leave"
                   active={activeTab === "leave"}
                 >
-                  ขอลา ({leaveRequests.length})
+                  ขอลา ({leavePendingCount})
                 </TabButton>
               </div>
             </div>
