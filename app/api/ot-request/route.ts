@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
     const { data: employee, error: employeeError } = await supabaseAdmin
       .from("employees")
-      .select("employee_code")
+      .select("employee_code, full_name")
       .eq("id", employeeId)
       .eq("active", true)
       .maybeSingle();
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { error: insertError } = await supabaseAdmin
+    const { data: insertedRequest, error: insertError } = await supabaseAdmin
       .from("ot_requests")
       .insert([
         {
@@ -60,13 +60,33 @@ export async function POST(req: Request) {
           reason,
           status: "pending_sm",
         },
-      ]);
+      ])
+      .select("request_id")
+      .single();
 
     if (insertError) {
       return NextResponse.json(
         { ok: false, message: insertError.message },
         { status: 500 }
       );
+    }
+
+    /*
+     * บันทึกประวัติกิจกรรม ไม่ให้ error ตรงนี้ทำให้การส่งคำขอล้มเหลว
+     */
+    try {
+      await supabaseAdmin.from("activity_log").insert([
+        {
+          request_type: "ot",
+          request_id: insertedRequest.request_id,
+          employee_code: employee.employee_code,
+          actor_name: employee.full_name || employee.employee_code,
+          actor_role: "employee",
+          action_label: "ยื่นคำขอ OT",
+        },
+      ]);
+    } catch (logError) {
+      console.error("Insert activity log error:", logError);
     }
 
     return NextResponse.json({

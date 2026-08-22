@@ -43,6 +43,16 @@ type ManagedEmployeeRow = {
   employee_code: string | null;
 };
 
+/*
+ * แปลงชื่อตารางจริงในฐานข้อมูล เป็น request_type สำหรับ activity_log
+ */
+const requestTypeByTable: Record<AllowedTable, string> = {
+  ot_requests: "ot",
+  shift_change_requests: "shift",
+  day_off_change_requests: "dayoff",
+  leave_form_requests: "leave",
+};
+
 function cleanString(value: unknown): string {
   return String(value ?? "").trim();
 }
@@ -56,6 +66,21 @@ function isUuid(value: string): boolean {
 function normalizeStatus(status: unknown): string {
   const value = cleanString(status);
   return value === "pending" ? "pending_sm" : value;
+}
+
+/*
+ * ข้อความประวัติกิจกรรม แยกตาม role คนที่กดปุ่ม และ action ที่เลือก
+ */
+function getActionLabel(role: Role, action: Action): string {
+  if (action === "reject") {
+    if (role === "section_manager") return "SM ไม่อนุมัติ";
+    if (role === "general_manager") return "GM ไม่อนุมัติ";
+    return "HR ไม่อนุมัติ";
+  }
+
+  if (role === "section_manager") return "SM อนุมัติ";
+  if (role === "general_manager") return "GM อนุมัติ";
+  return "HR อนุมัติ";
 }
 
 function getNextStatus({
@@ -160,7 +185,7 @@ export async function POST(req: Request) {
 
     const { data: approver, error: approverError } = await supabaseAdmin
       .from("employees")
-      .select("id, role")
+      .select("id, role, full_name")
       .eq("id", employeeId)
       .eq("active", true)
       .maybeSingle();
@@ -193,6 +218,8 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+
+    const approverName = cleanString(approver.full_name) || "ไม่ทราบชื่อ";
 
     const { data: requests, error: readError } = await supabaseAdmin
       .from(table)
@@ -285,6 +312,22 @@ export async function POST(req: Request) {
     let skipped = 0;
     const failed: string[] = [];
 
+    /*
+     * เก็บแถวที่อัปเดตสำเร็จไว้ก่อน แล้วค่อย insert activity_log
+     * เป็นชุดเดียวหลังจบ loop เพื่อลดจำนวนการเรียก DB
+     */
+    const activityLogRows: Array<{
+      request_type: string;
+      request_id: string;
+      employee_code: string | null;
+      actor_name: string;
+      actor_role: string;
+      action_label: string;
+    }> = [];
+
+    const actionLabel = getActionLabel(role, action);
+    const requestType = requestTypeByTable[table];
+
     for (const item of requestRows) {
       const requestId = cleanString(item.request_id);
       const employeeCode = cleanString(item.employee_code).toUpperCase();
@@ -333,8 +376,27 @@ export async function POST(req: Request) {
 
       if (updatedRow) {
         updated++;
+
+        activityLogRows.push({
+          request_type: requestType,
+          request_id: requestId,
+          employee_code: employeeCode || null,
+          actor_name: approverName,
+          actor_role: role,
+          action_label: actionLabel,
+        });
       } else {
         skipped++;
+      }
+    }
+
+    if (activityLogRows.length > 0) {
+      const { error: logError } = await supabaseAdmin
+        .from("activity_log")
+        .insert(activityLogRows);
+
+      if (logError) {
+        console.error("Insert activity log error:", logError);
       }
     }
 

@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import RequestTable from "./request-table";
+import ActivityLogTable, {
+  type TimelineRow,
+} from "../activity-log-table";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -77,6 +80,77 @@ function countPending(items: any[]) {
     const status = normalizeStatusValue(item.status);
     return status !== "approved_hr" && status !== "rejected";
   }).length;
+}
+
+function getEventDate(requestType: string, item: any): string {
+  if (requestType === "ot") return String(item.ot_date || "");
+  if (requestType === "shift") return String(item.shift_date || "");
+  if (requestType === "dayoff") return String(item.old_day_off || "");
+  if (requestType === "leave") return String(item.leave_day || "");
+  return "";
+}
+
+function getSummary(requestType: string, item: any): string {
+  if (requestType === "ot") {
+    return `${item.ot_type || "-"} ${item.start_time || "-"}-${
+      item.end_time || "-"
+    }`;
+  }
+
+  if (requestType === "shift") {
+    return `${item.old_shift_code || "-"} → ${
+      item.new_shift_code || "-"
+    }`;
+  }
+
+  if (requestType === "dayoff") {
+    return `${item.old_day_off || "-"} → ${item.new_day_off || "-"}`;
+  }
+
+  if (requestType === "leave") {
+    const days = item.leave_total_days
+      ? ` (${item.leave_total_days} วัน)`
+      : "";
+    return `${item.leave_type || "-"}${days}`;
+  }
+
+  return "-";
+}
+
+type StageEntry = { label: string; at: string };
+
+function buildTimelineRows(
+  requestType: "ot" | "shift" | "dayoff" | "leave",
+  items: any[],
+  smMap: Map<string, StageEntry>,
+  gmMap: Map<string, StageEntry>,
+  hrMap: Map<string, StageEntry>
+): TimelineRow[] {
+  return items.map((item) => {
+    const requestId = String(item.request_id || "");
+    const sm = smMap.get(requestId) || null;
+    const gm = gmMap.get(requestId) || null;
+    const hr = hrMap.get(requestId) || null;
+
+    return {
+      request_type: requestType,
+      request_id: requestId,
+      employee_code: String(item.employee_code || "").toUpperCase(),
+      employee_name: item.employee_name || "-",
+      department_id: item.department_id || "",
+      department_name: item.department_name || "-",
+      summary: getSummary(requestType, item),
+      event_date: getEventDate(requestType, item),
+      submitted_at: item.created_at || null,
+      sm_label: sm?.label || null,
+      sm_at: sm?.at || null,
+      gm_label: gm?.label || null,
+      gm_at: gm?.at || null,
+      hr_label: hr?.label || null,
+      hr_at: hr?.at || null,
+      status: item.status,
+    };
+  });
 }
 
 export default async function ManageRequestsPage({
@@ -358,6 +432,93 @@ export default async function ManageRequestsPage({
   const dayOffPendingCount = countPending(dayOffRequests);
   const leavePendingCount = countPending(leaveRequests);
 
+  /*
+   * ประวัติกิจกรรมทั้งระบบ (เฉพาะ HR เท่านั้นที่เห็น)
+   * รวมทุกคน ทุกคำขอ เรียงตามเวลาล่าสุดก่อน
+   */
+  /*
+   * ประวัติกิจกรรมทั้งระบบ (เฉพาะ HR เท่านั้นที่เห็น)
+   * แสดงแบบ 1 คำขอ 1 แถว โดยดึง log การอนุมัติ (ไม่รวม log ตอนยื่นคำขอ)
+   * มา map เข้ากับคำขอแต่ละใบตาม request_id
+   */
+  let activityTimelineRows: TimelineRow[] = [];
+
+  if (isHR) {
+    const { data: approvalLogs, error: approvalLogsError } =
+      await supabaseAdmin
+        .from("activity_log")
+        .select("*")
+        .neq("actor_role", "employee")
+        .order("created_at", { ascending: true });
+
+    if (approvalLogsError) {
+      console.error(
+        "โหลดประวัติการอนุมัติไม่สำเร็จ:",
+        approvalLogsError
+      );
+    }
+
+    const smMap = new Map<string, StageEntry>();
+    const gmMap = new Map<string, StageEntry>();
+    const hrMap = new Map<string, StageEntry>();
+
+    for (const log of approvalLogs || []) {
+      const requestId = String(log.request_id || "");
+      if (!requestId) continue;
+
+      const entry: StageEntry = {
+        label: String(log.action_label || ""),
+        at: log.created_at,
+      };
+
+      if (log.actor_role === "section_manager") {
+        smMap.set(requestId, entry);
+      } else if (log.actor_role === "general_manager") {
+        gmMap.set(requestId, entry);
+      } else if (log.actor_role === "hr") {
+        hrMap.set(requestId, entry);
+      }
+    }
+
+    /*
+     * ประวัติต้องดึงคำขอ "ทั้งหมด" ไม่ใช่แค่ที่แสดงในแท็บปัจจุบัน
+     * เพราะ otRequests ฯลฯ ที่มีอยู่แล้วเป็นของ HR ครบทุกสถานะอยู่แล้ว
+     * จึงใช้ชุดเดียวกันได้เลยโดยไม่ต้อง query ซ้ำ
+     */
+    activityTimelineRows = [
+      ...buildTimelineRows("ot", otRequests, smMap, gmMap, hrMap),
+      ...buildTimelineRows(
+        "shift",
+        shiftRequests,
+        smMap,
+        gmMap,
+        hrMap
+      ),
+      ...buildTimelineRows(
+        "dayoff",
+        dayOffRequests,
+        smMap,
+        gmMap,
+        hrMap
+      ),
+      ...buildTimelineRows(
+        "leave",
+        leaveRequests,
+        smMap,
+        gmMap,
+        hrMap
+      ),
+    ].sort((a, b) => {
+      const aTime = a.submitted_at
+        ? new Date(a.submitted_at).getTime()
+        : 0;
+      const bTime = b.submitted_at
+        ? new Date(b.submitted_at).getTime()
+        : 0;
+      return bTime - aTime;
+    });
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 p-6">
       <div className="mx-auto w-full max-w-[1800px] space-y-6">
@@ -423,7 +584,13 @@ export default async function ManageRequestsPage({
         {(isSM || isHR) && (
           <>
             <div className="rounded-2xl bg-white p-4 shadow">
-              <div className="grid gap-3 sm:grid-cols-4">
+              <div
+                className={
+                  isHR
+                    ? "grid gap-3 sm:grid-cols-5"
+                    : "grid gap-3 sm:grid-cols-4"
+                }
+              >
                 <TabButton
                   href="/dashboard/manage-requests?tab=ot"
                   active={activeTab === "ot"}
@@ -451,6 +618,15 @@ export default async function ManageRequestsPage({
                 >
                   ขอลา ({leavePendingCount})
                 </TabButton>
+
+                {isHR && (
+                  <TabButton
+                    href="/dashboard/manage-requests?tab=activity"
+                    active={activeTab === "activity"}
+                  >
+                    ประวัติกิจกรรมทั้งหมด ({activityTimelineRows.length})
+                  </TabButton>
+                )}
               </div>
             </div>
 
@@ -511,6 +687,14 @@ export default async function ManageRequestsPage({
                 type="leave"
                 role={role}
                 departments={departmentOptions}
+              />
+            )}
+
+            {isHR && activeTab === "activity" && (
+              <ActivityLogTable
+                items={activityTimelineRows}
+                departments={departmentOptions}
+                variant="hr"
               />
             )}
           </>
